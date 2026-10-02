@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Pretendard", "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --color-pro: #c2410c;
+  --color-pro-soft: #fff1e6;
+  --color-con: #1d4ed8;
+  --color-con-soft: #e8efff;
+  --color-wood: #7c4a26;
+  --color-ink: #1c1917;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background: #f5f2ec;
+  color: #1c1917;
+  overflow-x: hidden;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}

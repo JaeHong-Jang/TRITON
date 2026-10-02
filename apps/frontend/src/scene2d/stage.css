@@ -1,0 +1,41 @@
+/* 2D 법정 애니메이션 */
+.c2d-svg { font-family: "Pretendard", "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; user-select: none; }
+.c2d-beam, .c2d-pan { transition: transform 1100ms cubic-bezier(0.3, 0.7, 0.2, 1); }
+.c2d-weight { cursor: pointer; outline: none; }
+.c2d-weight .c2d-focus { opacity: 0; }
+.c2d-weight:focus-visible .c2d-focus, .c2d-weight[data-on="1"] .c2d-focus { opacity: 1; }
+.c2d-weight:hover .c2d-lift { transform: translateY(-3px); }
+.c2d-lift { transition: transform 160ms ease; }
+.c2d-drop { animation: c2d-drop 700ms cubic-bezier(0.3, 1.4, 0.5, 1) both; }
+.c2d-bob { animation: c2d-bob 640ms ease-in-out infinite; }
+.c2d-blink { animation: c2d-blink 4.6s infinite; transform-box: fill-box; transform-origin: center; }
+.c2d-dot { animation: c2d-dot 1s infinite; }
+.c2d-dot:nth-child(2) { animation-delay: 0.18s; }
+.c2d-dot:nth-child(3) { animation-delay: 0.36s; }
+.c2d-pulse { animation: c2d-pulse 1.6s ease-in-out infinite; }
+.c2d-sway { animation: c2d-sway 3.2s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 100%; }
+.c2d-hop { animation: c2d-hop 700ms ease-in-out infinite; }
+.c2d-hook { animation: c2d-hook 900ms cubic-bezier(0.3, 1.2, 0.5, 1) both; }
+.c2d-breathe { animation: c2d-breathe 3.8s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 100%; }
+.c2d-nod { animation: c2d-nod 0.9s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 90%; }
+.c2d-type { animation: c2d-type 0.34s ease-in-out infinite alternate; }
+.c2d-talk { animation: c2d-talk 0.36s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: center; }
+.c2d-gesture { animation: c2d-gesture 0.8s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: 0% 0%; }
+.c2d-bubble { animation: c2d-pop 260ms ease-out both; transform-box: fill-box; transform-origin: 50% 100%; }
+@keyframes c2d-drop { from { transform: translateY(-170px); opacity: 0; } 60% { opacity: 1; } to { transform: translateY(0); opacity: 1; } }
+@keyframes c2d-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes c2d-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.1); } }
+@keyframes c2d-dot { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@keyframes c2d-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@keyframes c2d-sway { 0%, 100% { transform: rotate(-1.6deg); } 50% { transform: rotate(1.6deg); } }
+@keyframes c2d-hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-34px); } }
+@keyframes c2d-hook { from { transform: translateY(-110px); opacity: 0; } 40% { opacity: 1; } to { transform: translateY(0); opacity: 1; } }
+@keyframes c2d-pop { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes c2d-breathe { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(1.022); } }
+@keyframes c2d-nod { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(3deg) translateY(2px); } }
+@keyframes c2d-type { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+@keyframes c2d-talk { from { transform: scaleY(0.45); } to { transform: scaleY(1.15); } }
+@keyframes c2d-gesture { from { transform: rotate(0deg); } to { transform: rotate(-16deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .c2d-svg *, .c2d-svg { animation: none !important; transition: none !important; }
+}
