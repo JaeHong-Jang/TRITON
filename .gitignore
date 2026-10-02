@@ -1,0 +1,22 @@
+# AI-Hub 원천 파생 데이터 (재배포 금지)
+data/*
+!data/README.md
+
+# 모델
+*.gguf
+*.safetensors
+
+# python
+.venv/
+__pycache__/
+.pytest_cache/
+
+# node
+node_modules/
+dist/
+test-results/
+playwright-report/
+
+# 로컬 도구 상태
+.fablize/
+.omc/

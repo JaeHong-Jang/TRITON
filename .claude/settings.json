@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/tools/checks/hook_lint.py\"",
+            "timeout": 30,
+            "statusMessage": "하네스 규칙 검사"
+          }
+        ]
+      }
+    ]
+  }
+}

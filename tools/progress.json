@@ -1,0 +1,469 @@
+{
+  "updatedAt": "2026-10-02",
+  "statuses": {
+    "todo": "예정",
+    "doing": "진행 중",
+    "done": "구현됨",
+    "verified": "검증됨"
+  },
+  "phases": [
+    {
+      "id": "P0",
+      "title": "하네스",
+      "features": [
+        {
+          "id": "P0.1",
+          "title": "폴더 구조 (backend · frontend · data · skills · harness)",
+          "owner": "harness",
+          "status": "verified",
+          "verify": "AGENTS.md"
+        },
+        {
+          "id": "P0.2",
+          "title": "계약 문서 (API · 재판 절차 · 도메인)",
+          "owner": "harness",
+          "status": "verified",
+          "verify": "docs/contracts/"
+        },
+        {
+          "id": "P0.3",
+          "title": "단일 서버 실행 (run.sh)",
+          "owner": "harness",
+          "status": "verified",
+          "verify": "./tools/run.sh → http://localhost:8000"
+        },
+        {
+          "id": "P0.4",
+          "title": "전체 검증 스크립트 (verify.sh)",
+          "owner": "harness",
+          "status": "verified",
+          "verify": "./tools/checks/verify.sh"
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "title": "온톨로지 · 스킬",
+      "features": [
+        {
+          "id": "P1.1",
+          "title": "근거 온톨로지 (주장 유형 · 입장 · 근거 종류 · 조치 단계)",
+          "owner": "harness",
+          "status": "verified",
+          "verify": "agents/ontology.yaml"
+        },
+        {
+          "id": "P1.2",
+          "title": "에이전트 스킬 파일 (서기 · 검사 · 변호 · 반대신문 · 재판연구관)",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "agents/*/SKILL.md"
+        },
+        {
+          "id": "P1.3",
+          "title": "온톨로지 기반 주장 검증 · 입장 자동 결정",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "pytest tests/test_ontology.py"
+        },
+        {
+          "id": "P1.4",
+          "title": "핵심어 부재 근거 검증",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "pytest tests/test_evidence.py"
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "백엔드 API",
+      "features": [
+        {
+          "id": "P2.1",
+          "title": "FastAPI 앱 + 프론트 정적 서빙",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "GET /api/health"
+        },
+        {
+          "id": "P2.2",
+          "title": "사건 · 재판 기록 조회",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "GET /api/cases"
+        },
+        {
+          "id": "P2.3",
+          "title": "재판 생성 작업 큐 · 진행률",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "POST /api/cases/{id}/trials/2"
+        },
+        {
+          "id": "P2.4",
+          "title": "신뢰도 장부 저장 · 사건 단계 계산",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "POST /api/ledger"
+        },
+        {
+          "id": "P2.5",
+          "title": "정답 보호 (최종 판결 전 403)",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "GET /api/cases/{id}/answer"
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "법정 화면",
+      "features": [
+        {
+          "id": "P3.1",
+          "title": "페이지 라우팅 · 상단 메뉴",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "화면 이동"
+        },
+        {
+          "id": "P3.2",
+          "title": "찬성/반대 접시에 근거가 쌓이는 천칭",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "법정 화면 스크린샷"
+        },
+        {
+          "id": "P3.3",
+          "title": "지금 단계 · 다음 행동 안내 (스테퍼 · 배너)",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "법정 화면 스크린샷"
+        },
+        {
+          "id": "P3.4",
+          "title": "근거별 채택/기각 · 기사 원문 연결",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "vitest lib/scale"
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "title": "2심 · 3심",
+      "features": [
+        {
+          "id": "P4.1",
+          "title": "2심 전문 분담 팀 · 반대신문 생성",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "pytest tests/test_instances.py"
+        },
+        {
+          "id": "P4.2",
+          "title": "3심 재판연구관 보고서",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "pytest tests/test_instances.py"
+        },
+        {
+          "id": "P4.3",
+          "title": "합의부 판사석 · 다수결 · 조치 단계 승인 화면",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "3심까지 진행 스크린샷"
+        },
+        {
+          "id": "P4.4",
+          "title": "생성 진행률 표시",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "2심 생성 화면"
+        }
+      ]
+    },
+    {
+      "id": "P5",
+      "title": "운영 화면",
+      "features": [
+        {
+          "id": "P5.1",
+          "title": "접수처 (약식 처리 / 재판 회부 · 사유)",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "접수처 화면"
+        },
+        {
+          "id": "P5.2",
+          "title": "기록실 (판결문 · 장부 타임라인)",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "기록실 화면"
+        },
+        {
+          "id": "P5.3",
+          "title": "통계실 집계 API",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "GET /api/stats"
+        },
+        {
+          "id": "P5.4",
+          "title": "통계실 화면",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "통계실 화면"
+        }
+      ]
+    },
+    {
+      "id": "P6",
+      "title": "실험실",
+      "features": [
+        {
+          "id": "P6.1",
+          "title": "실험 조건 A/B/C 세션",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "POST /api/lab/sessions"
+        },
+        {
+          "id": "P6.2",
+          "title": "레드팀 변형 사건 (문장 이동 · 명령 주입)",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "POST /api/lab/variants"
+        },
+        {
+          "id": "P6.3",
+          "title": "실험실 화면 · 판결 후 정답 공개",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "실험실 화면"
+        },
+        {
+          "id": "P6.4",
+          "title": "구현 현황 화면",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "구현 현황 화면"
+        }
+      ]
+    },
+    {
+      "id": "P7",
+      "title": "검증",
+      "features": [
+        {
+          "id": "P7.1",
+          "title": "기능 리뷰 · 수정",
+          "owner": "harness",
+          "status": "verified",
+          "verify": "리뷰 보고서"
+        },
+        {
+          "id": "P7.2",
+          "title": "UI 사용성 리뷰 · 수정",
+          "owner": "harness",
+          "status": "verified",
+          "verify": "리뷰 보고서"
+        },
+        {
+          "id": "P7.3",
+          "title": "42건 재판 기록 재생성 (온톨로지 v1)",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "data/trials/*/1.json"
+        }
+      ]
+    },
+    {
+      "id": "P8",
+      "title": "2D 법정",
+      "features": [
+        {
+          "id": "P8.1",
+          "title": "SVG 무대 (법대 · 검사석 · 변호석 · 증거 제출대 · 방청석)",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "법정 화면 스크린샷"
+        },
+        {
+          "id": "P8.2",
+          "title": "로봇 에이전트 · 사람 판사 · 신문 피고 캐릭터",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "법정 화면 스크린샷"
+        },
+        {
+          "id": "P8.3",
+          "title": "2D 천칭 (입장별 근거 추 · 범례 · 가림천)",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "vitest scene2d · 스크린샷"
+        },
+        {
+          "id": "P8.4",
+          "title": "3D 비교 토글 (P9.13에서 3D 제거로 대체)",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "번들에 three.js 분리"
+        }
+      ]
+    },
+    {
+      "id": "P9",
+      "title": "운영 콘솔 · 실시간 에이전트",
+      "features": [
+        {
+          "id": "P9.1",
+          "title": "에이전트 작업 루프 (계획 · 도구 · 초안 · 검증 · 고쳐 쓰기 · 판사에게 넘김)",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "pytest tests/test_court_agent_loop.py"
+        },
+        {
+          "id": "P9.2",
+          "title": "실시간 작업 이벤트 · 중간 기록 (jobs ?since)",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "GET /api/jobs/{id}?since=0"
+        },
+        {
+          "id": "P9.3",
+          "title": "접수 검토 분리 · 자율 범위 정책 API",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "GET/PUT /api/policy, POST /api/intake"
+        },
+        {
+          "id": "P9.4",
+          "title": "대시보드 · 작업실 · 비용 API",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "GET /api/dashboard, /api/agents"
+        },
+        {
+          "id": "P9.5",
+          "title": "운영 콘솔 레이아웃 (왼쪽 메뉴)",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "콘솔 스크린샷"
+        },
+        {
+          "id": "P9.6",
+          "title": "대시보드 화면",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "대시보드 스크린샷"
+        },
+        {
+          "id": "P9.7",
+          "title": "에이전트 작업실 (사무실 그림 · 실시간 상태)",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "작업실 스크린샷"
+        },
+        {
+          "id": "P9.8",
+          "title": "규칙 · 온톨로지 (온톨로지 그래프 · 정책 설정)",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "규칙 화면 스크린샷"
+        },
+        {
+          "id": "P9.9",
+          "title": "감사 장부 (사건 근거 그래프 · 에이전트 작업 기록)",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "감사 장부 스크린샷"
+        },
+        {
+          "id": "P9.10",
+          "title": "법정: 한 번 누르면 실시간 진행 · 자동 공개",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "법정 흐름 스크린샷"
+        },
+        {
+          "id": "P9.11",
+          "title": "법정: 심급 탭 · 단계 칩 이동",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "법정 스크린샷"
+        },
+        {
+          "id": "P9.12",
+          "title": "법정: 사람 캐릭터 · 방청석 정리 · 기사 원문 위치 · 경로 제거 · 색 줄 제거",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "법정 스크린샷"
+        },
+        {
+          "id": "P9.13",
+          "title": "3D 제거",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "번들에 three.js 없음"
+        },
+        {
+          "id": "P9.14",
+          "title": "통계 겹침 수정 · 비용 표시 · 실험실 설명",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "통계 · 실험실 스크린샷"
+        },
+        {
+          "id": "P9.15",
+          "title": "42건 접수 검토 생성 · 1심 실시간 전환",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "data/intake/*.json"
+        }
+      ]
+    },
+    {
+      "id": "P10",
+      "title": "하네스 구조",
+      "features": [
+        {
+          "id": "P10.1",
+          "title": "폴더 재구성 (apps · agents · docs · tools · .claude)",
+          "owner": "harness",
+          "status": "verified",
+          "verify": "AGENTS.md"
+        },
+        {
+          "id": "P10.2",
+          "title": "계층 의존 규칙 검사 (ARCHITECTURE.md)",
+          "owner": "harness",
+          "status": "verified",
+          "verify": "python3 tools/checks/lint_harness.py"
+        },
+        {
+          "id": "P10.3",
+          "title": "편집 훅 · 개발 서브에이전트 · 절차 스킬",
+          "owner": "harness",
+          "status": "verified",
+          "verify": ".claude/settings.json"
+        },
+        {
+          "id": "P10.4",
+          "title": "문서 체계 (설계 · 명세 · 계약 · 실행 계획 · 참고 · 품질 점수)",
+          "owner": "harness",
+          "status": "verified",
+          "verify": "docs/README.md"
+        },
+        {
+          "id": "P10.5",
+          "title": "GitHub 커밋 · 푸시",
+          "owner": "harness",
+          "status": "doing",
+          "verify": "git log origin/main"
+        }
+      ]
+    }
+  ]
+}
