@@ -11,9 +11,9 @@ export function clerkWarning(stats: Stats | null): { tone: 'none' | 'ok' | 'warn
   const acc = stats.screening.correct / stats.screening.total
   const wrong = stats.screening.total - stats.screening.correct
   if (stats.screening.total < 20) return { tone: 'warn', text: `표본이 ${stats.screening.total}건뿐이라 정확도(${pct(acc)})를 아직 믿기 어렵습니다. 약식 처리 기준을 높게 유지하세요.` }
-  if (acc < 0.6) return { tone: 'bad', text: `서기가 ${stats.screening.total}건 중 ${wrong}건을 틀렸습니다. 이 정확도로는 약식 처리를 맡기기 위험하니 끄거나 기준을 크게 높이세요.` }
+  if (acc < 0.6) return { tone: 'bad', text: `서기가 ${stats.screening.total}건 중 ${wrong}건을 틀렸습니다. 이 정확도로는 약식 권고로 넘기기 위험하니 끄거나 기준을 크게 높이세요.` }
   if (acc < 0.8) return { tone: 'warn', text: `서기가 ${stats.screening.total}건 중 ${wrong}건을 틀렸습니다. 약식 처리 기준을 높이거나 고위험 분야를 넓혀 사람이 더 보게 하세요.` }
-  return { tone: 'ok', text: `서기가 ${stats.screening.total}건 중 ${stats.screening.correct}건을 맞혔습니다. 지금 기준으로 약식 처리를 맡겨도 괜찮은 수준입니다.` }
+  return { tone: 'ok', text: `서기가 ${stats.screening.total}건 중 ${stats.screening.correct}건을 맞혔습니다. 지금 기준으로 약식 권고로 분류해도 괜찮은 수준입니다.` }
 }
 
 const WARN_STYLE = { none: 'border-stone-200 bg-stone-50 text-stone-600', ok: 'border-emerald-200 bg-emerald-50 text-emerald-900', warn: 'border-amber-300 bg-amber-50 text-amber-900', bad: 'border-red-300 bg-red-50 text-red-900' }
@@ -67,7 +67,7 @@ export function PolicyCard() {
           <input type="checkbox" role="switch" checked={draft.summaryEnabled} onChange={(e) => (setDraft({ ...draft, summaryEnabled: e.target.checked }), setDone(false))} className="mt-0.5 h-5 w-5 accent-amber-600" />
           <span>
             <b className="text-sm">약식 처리 사용</b>
-            <span className="block text-[12.5px] leading-relaxed text-stone-600">서기가 충분히 확신하는 사건은 재판 없이 AI가 가벼운 조치(아무 일 없음 또는 독자 안내, 코드 L0~L1)만 합니다. 끄면 모든 사건이 재판으로 갑니다.</span>
+            <span className="block text-[12.5px] leading-relaxed text-stone-600">서기가 충분히 확신하는 사건은 약식 권고로 분류됩니다. 최종 판결과 조치 승인 기록은 사람이 남깁니다. 끄면 모든 사건이 재판으로 갑니다.</span>
           </span>
         </label>
 

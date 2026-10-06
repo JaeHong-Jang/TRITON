@@ -10,6 +10,7 @@ import { OfficerCard } from '../features/court/OfficerCard'
 import { useCourt } from '../features/court/store'
 import { useAutoReveal } from '../features/court/useAutoReveal'
 import { evidenceText, useCourtView } from '../features/court/view'
+import { ExecutionGraph } from '../features/execution/ExecutionGraph'
 import CourtStage from '../scene2d/CourtStage'
 import { fmtWeight } from '../lib/scale'
 import { ErrorNote, Loading } from '../ui/Feedback'
@@ -27,7 +28,7 @@ function useIsMobile(): boolean {
   return mobile
 }
 
-// 2D 장면과 천칭 합계·작업 표시를 겹쳐 보여 주는 무대 (mini는 모바일 고정 작은 무대)
+// 법정 장면과 공개 범위를 따르는 근거 요약
 function SceneHost({ mini = false }: { mini?: boolean }) {
   const v = useCourtView()
   const setFocus = useCourt((s) => s.setFocus)
@@ -44,48 +45,31 @@ function SceneHost({ mini = false }: { mini?: boolean }) {
     appealed: v.current > 1 && !v.state.final,
     onPick: (id: string) => setFocus(focus === id ? null : id),
   }
-  if (mini) {
-    return (
-      <div className="relative h-full w-full">
-        <CourtStage view={sceneView} speakingClaim={v.speakingClaim} activity={v.activity} currentSeat={v.currentSeat} mini />
+  return (
+    <div className={`court-domain-host ${mini ? 'court-domain-host-mini' : ''}`}>
+      <div className="court-scene-heading">
+        <span className="court-scene-name">법정</span>
+        <span>최종 판결은 사람이 내립니다</span>
+      </div>
+      <div className="court-scene-body">
+        <CourtStage view={sceneView} speakingClaim={v.speakingClaim} activity={v.activity} currentSeat={v.currentSeat} mini={mini} />
         {v.writing ? (
-          <div className="pointer-events-none absolute right-2 top-2 flex items-center gap-1.5 rounded-lg bg-stone-900/90 px-2 py-1 text-xs font-bold text-amber-200 shadow" role="status">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" aria-hidden />
+          <div className="court-working-note" role="status">
+            <span className="court-dot" aria-hidden />
             AI 작업 중{v.job && v.job.total ? ` · ${v.job.done}/${v.job.total}` : ''}
           </div>
         ) : null}
       </div>
-    )
-  }
-  return (
-    <div className="relative h-full w-full">
-      <CourtStage view={sceneView} speakingClaim={v.speakingClaim} activity={v.activity} currentSeat={v.currentSeat} />
-      <div className="pointer-events-none absolute left-3 top-3 rounded-xl bg-white/90 px-3 py-2 text-sm font-black shadow" aria-label="천칭 합계">
-        {v.hidden ? (
-          <span className="text-stone-600">천칭 가림 · 첫인상을 기록하면 열립니다</span>
-        ) : (
-          <>
-            <span className="text-pro">찬성 {fmtWeight(v.balance.pro)}</span>
-            <span className="mx-1.5 text-stone-600">:</span>
-            <span className="text-con">반대 {fmtWeight(v.balance.con)}</span>
-          </>
-        )}
-      </div>
-      {v.writing ? (
-        <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-2 rounded-xl bg-stone-900/90 px-3 py-2 text-sm font-bold text-amber-200 shadow" role="status">
-          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-amber-400" aria-hidden />
-          AI 에이전트 작업 중{v.job && v.job.total ? ` · ${v.job.done}/${v.job.total}` : ''}
+      {mini ? null : (
+        <div className="court-scene-footer">
+          <p className="court-evidence-summary" aria-label="근거 가중치 합계">
+            {v.hidden ? '첫인상을 기록하면 AI 변론과 근거가 공개됩니다.' : (
+              <><span>근거 가중치</span><b>찬성 {fmtWeight(v.balance.pro)}</b><b>반대 {fmtWeight(v.balance.con)}</b><span>기사의 판결을 뜻하지 않습니다.</span></>
+            )}
+          </p>
+          {!v.hidden && v.focusEvidence ? <p className="court-selected-evidence" aria-label="선택한 근거">{evidenceText(v.focusEvidence)}{v.focusEvidence.status === 'misnumbered' && v.focusEvidence.foundIn ? ` · 실제 원문 #${v.focusEvidence.foundIn}` : ''}</p> : null}
         </div>
-      ) : null}
-      <div className="pointer-events-none absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs font-bold text-stone-800" aria-label="그림 보는 법" style={v.focusEvidence ? { display: 'none' } : undefined}>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1 shadow"><b className="rounded bg-pro px-1.5 text-white">AI</b> 배지가 있으면 변론·검증을 돕는 AI 에이전트</span>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1 shadow"><b className="rounded bg-stone-900 px-1.5 text-amber-200">사람</b> 배지가 없는 판사가 판결합니다</span>
-      </div>
-      {v.focusEvidence ? (
-        <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-lg bg-stone-900/90 px-3 py-2 text-sm text-amber-100 shadow" aria-label="선택한 근거">
-          선택한 근거 · {evidenceText(v.focusEvidence)}
-        </div>
-      ) : null}
+      )}
     </div>
   )
 }
@@ -96,6 +80,8 @@ export default function CourtPage() {
   const open = useCourt((s) => s.open)
   const loading = useCourt((s) => s.loading)
   const error = useCourt((s) => s.error)
+  const retryJob = useCourt((s) => s.retryJob)
+  const cancelJob = useCourt((s) => s.cancelJob)
   const v = useCourtView()
   const mobile = useIsMobile()
   const aside = useRef<HTMLElement>(null)
@@ -112,25 +98,27 @@ export default function CourtPage() {
   if (!v) return <ErrorNote message={error ?? '사건을 불러오지 못했습니다'} onRetry={() => open(caseId)} />
   const judging = v.live && (v.phase === 'seats' || v.phase === 'decision')
   return (
-    <div className="flex min-h-full min-w-0 flex-col lg:h-full">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-stone-300 bg-white px-3 py-2">
-        <h2 className="min-w-0 flex-1 basis-60 truncate text-base font-black" title={v.caseData.title}>{v.caseData.title}</h2>
-        <InstanceStepper />
-        <StepIndicator phase={v.live ? v.phase : 'final'} />
-      </div>
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)]">
-        {mobile ? <div className="sticky top-0 z-20 h-[140px] border-b border-stone-300" aria-label="작은 법정 화면"><SceneHost mini /></div> : null}
-        <div className="min-h-0">
-          {mobile ? null : <div className="h-[40vh] min-h-[220px] lg:h-full"><SceneHost /></div>}
-          <p className="bg-stone-900 px-3 py-1.5 text-center text-xs font-bold text-amber-200 min-[600px]:hidden">판사는 사람입니다 · AI는 판결하지 않습니다</p>
+    <div className="court-domain-page flex min-h-full min-w-0 flex-col lg:h-full">
+      <div className="court-domain-heading">
+        <h2 title={v.caseData.title}>{v.caseData.title}</h2>
+        <div className="court-procedure-nav">
+          <InstanceStepper />
+          <StepIndicator phase={v.live ? v.phase : 'final'} />
         </div>
-        <aside ref={aside} className="flex min-h-0 min-w-0 flex-col gap-3 border-l border-stone-300 bg-stone-50 p-3 lg:overflow-y-auto">
-          <NowBanner />
-          {v.needStart ? <StartPanel /> : v.viewInstance === 1 ? <FirstImpressionSection /> : null}
+      </div>
+      <div className="court-domain-layout">
+        {mobile ? <div className="court-mobile-stage" aria-label="작은 법정 화면"><SceneHost mini /></div> : null}
+        {mobile ? null : <div className="court-desktop-stage"><SceneHost /></div>}
+        <aside ref={aside} className="court-case-file" aria-label="재판 기록과 판사 입력">
+          <div className="court-file-heading"><h2>사건 기록</h2><span>읽고, 검토하고, 판단하세요</span></div>
+          {v.mockManual ? <section role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><h3 className="font-bold">모의 화면 · 직접 등록 기사</h3><p className="mt-1">원문 읽기와 첫인상 기록을 실험할 수 있습니다. 이 화면에서는 AI 변론을 생성하지 않습니다. 실제 분석은 로컬 서버에 기사를 등록한 뒤 시작하세요.</p>{v.state.first ? <p className="mt-1 font-bold">첫인상이 저장되었습니다. 새로고침해도 이 탭에서 다시 확인할 수 있습니다.</p> : null}</section> : <NowBanner />}
+          {v.needStart ? <StartPanel /> : null}
+          {v.viewInstance === 1 && (!v.needStart || v.state.first) ? <FirstImpressionSection /> : null}
           <ArticlePanel />
+          <ExecutionGraph view={v.execution} workflow={v.workflow} mock={import.meta.env.VITE_MOCK === '1'} compact busy={v.controlBusy} onRetry={() => void retryJob()} onCancel={() => void cancelJob()} />
           {v.viewInstance === 3 ? <OfficerCard /> : null}
-          <ClaimsPanel />
-          <div className={judging ? 'lg:sticky lg:bottom-0 lg:z-10 lg:-mx-3 lg:shrink-0 lg:max-h-[58vh] lg:overflow-y-auto lg:border-t lg:border-stone-200 lg:bg-stone-50 lg:px-3 lg:pb-3 lg:pt-2 lg:shadow-[0_-8px_10px_-10px_rgba(0,0,0,0.2)]' : undefined}><VerdictSection /></div>
+          {v.mockManual ? null : <ClaimsPanel />}
+          {v.mockManual ? null : <div className={judging ? 'lg:sticky lg:bottom-0 lg:z-10 lg:-mx-3 lg:shrink-0 lg:max-h-[58vh] lg:overflow-y-auto lg:border-t lg:border-stone-200 lg:bg-stone-50 lg:px-3 lg:pb-3 lg:pt-2 lg:shadow-[0_-8px_10px_-10px_rgba(0,0,0,0.2)]' : undefined}><VerdictSection /></div>}
         </aside>
       </div>
     </div>

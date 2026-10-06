@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import type { Instance, LedgerEntry, Records, TrialRecord } from '../api/types'
 import { BTN, PageFrame, PANEL } from '../console/parts'
 import { AnswerCard } from '../features/court/AnswerCard'
+import { ExecutionGraph } from '../features/execution/ExecutionGraph'
 import { AgentLog } from '../features/ontology/AgentLog'
 import { EvidenceGraph } from '../features/ontology/EvidenceGraph'
 import { describeEntry, eventFromEntry } from '../lib/ledger'
@@ -48,13 +49,14 @@ function RecordsIndex() {
 // 심급 하나의 판결문 섹션
 function InstanceSection({ rec, state, ledger, sentences }: { rec: TrialRecord; state: TrialState; ledger: LedgerEntry[]; sentences: Records['case']['sentences'] }) {
   const ont = useOntology((s) => s.ont)
+  const { data: execution } = useAsync(() => api.execution(rec.caseId, rec.instance), [rec.caseId, rec.instance])
   const inst = state.instances[rec.instance]
   const rulings = ledger.filter((e) => !e.labSessionId && e.instance === rec.instance && e.type === 'evidence_ruling')
   const evidenceIds = new Set(rec.claims.flatMap((c) => c.evidence.map((e) => e.id)))
   const ruled = Object.entries(state.rulings).filter(([id]) => evidenceIds.has(id))
   return (
     <section className={`${CARD} space-y-3`} aria-label={`${rec.instance}심 판결문`} id={`inst-${rec.instance}`}>
-      <h2 className="text-lg font-black">{rec.instance}심 판결문</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-black">{rec.instance}심 판결문</h2><Link className={BTN} to={`/agents?caseId=${encodeURIComponent(rec.caseId)}&instance=${rec.instance}`}>관제 그래프로 보기 ↗</Link></div>
       <p className="text-xs text-stone-600">
         재판부: {rec.bench.map((a) => `${a.name}${a.specialty ? `(${specialtyLabel(ont, a.specialty)})` : ''}`).join(', ')} · 모델 {rec.model.name}
       </p>
@@ -85,6 +87,10 @@ function InstanceSection({ rec, state, ledger, sentences }: { rec: TrialRecord; 
         ))}
       </div>
       <p className="text-sm">판사 근거 결정: {ruled.length ? `채택 ${ruled.filter(([, r]) => r === 'admitted').length} · 기각 ${ruled.filter(([, r]) => r === 'struck').length}` : '없음'} <span className="text-xs text-stone-600">(결정 기록 {rulings.length}건)</span></p>
+      <div id={`execution-${rec.instance}`} className="scroll-mt-4">
+        <ExecutionGraph view={execution ?? null} title={`${rec.instance}심 실행 그래프`} mock={import.meta.env.VITE_MOCK === '1'} />
+        {!rec.execution ? <p className="mt-2 rounded-lg bg-stone-100 p-2 text-xs text-stone-600">이전 형식의 기록이라 실행 그래프 스냅샷이 없습니다.</p> : null}
+      </div>
       <div id={`graph-${rec.instance}`} className="scroll-mt-4">
         <h3 className="mb-2 text-sm font-black">근거 그래프 <span className="text-xs font-normal text-stone-500">누가 어떤 주장을 어떤 근거로 어느 문장에서 폈는지</span></h3>
         <EvidenceGraph rec={rec} sentences={sentences} />
@@ -159,6 +165,7 @@ function CaseRecords({ caseId }: { caseId: string }) {
             <span className="font-semibold text-stone-600">바로가기</span>
             {data.trials.length > 1 ? data.trials.map((t) => <button key={t.instance} type="button" className={BTN} onClick={() => jump(`inst-${t.instance}`)}>{t.instance}심 판결문</button>) : null}
             <button type="button" className={BTN} onClick={() => jump(`graph-${last}`)}>근거 그래프 보기</button>
+            <button type="button" className={BTN} onClick={() => jump(`execution-${last}`)}>실행 그래프 보기</button>
             <button type="button" className={BTN} onClick={() => jump(`log-${last}`)}>에이전트 작업 기록</button>
             <button type="button" className={BTN} onClick={() => document.querySelector('[aria-label="장부 타임라인"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>장부</button>
           </nav>
@@ -169,9 +176,9 @@ function CaseRecords({ caseId }: { caseId: string }) {
         <section className={`space-y-2 rounded-2xl border p-5 ${f.verdict === 'clickbait' ? 'border-pro/30 bg-pro-soft/60' : 'border-con/30 bg-con-soft/60'}`} aria-label="최종 판결">
           <p className="text-xs font-bold text-stone-600">최종 판결</p>
           <p className={`text-xl font-black ${f.verdict === 'clickbait' ? 'text-pro' : 'text-con'}`}>{f.verdict === 'clickbait' ? '유죄 · 낚시성 기사' : '무죄 · 낚시성 아님'}</p>
-          <p className="text-sm">표결 {f.votes.map((v) => `${v.seat}석 ${leaningLabel(v.verdict)}`).join(' · ')} · 조치 {f.action} ({actionLabel(ont, f.action)}) {needsHuman(ont, f.action) ? <Badge tone="amber">사람 승인</Badge> : null}</p>
+          <p className="text-sm">표결 {f.votes.map((v) => `${v.seat}석 ${leaningLabel(v.verdict)}`).join(' · ')} · 조치 {f.action} ({actionLabel(ont, f.action)}) <Badge tone={needsHuman(ont, f.action) ? 'amber' : 'gray'}>{needsHuman(ont, f.action) ? '사람 승인 기록' : '판사 기록/안내'}</Badge></p>
           <p className="text-sm text-stone-700">사유: {f.reason}</p>
-          <AnswerCard caseId={caseId} verdict={f.verdict} />
+          <AnswerCard caseId={caseId} verdict={f.verdict} noGroundTruth={data.case.origin === 'manual'} />
         </section>
       ) : <p className="rounded-lg bg-amber-50 p-3 text-sm">아직 최종 판결이 없습니다. 정답은 최종 판결 이후에만 공개됩니다.</p>}
       {data.trials.map((t) => <InstanceSection key={t.instance} rec={t} state={state} ledger={data.ledger} sentences={data.case.sentences} />)}

@@ -155,9 +155,13 @@ describe('measureBubble', () => {
 })
 
 describe('miniViewBoxOf', () => {
-  it('가로 1300을 그대로 담고 높이는 컨테이너 비율을 따른다', () => {
-    const v = miniViewBoxOf(390, 140)
-    expect(v.w).toBe(1300)
-    expect(v.h).toBeCloseTo(466.7, 0)
+  it('휴대폰에서도 검증관부터 천칭까지 전체 법정을 담는다', () => {
+    for (const [w, h] of [[390, 210], [320, 210], [768, 210]]) {
+      const v = miniViewBoxOf(w, h)
+      expect(v.x).toBe(0)
+      expect(v.w).toBe(1600)
+      expect(v.y).toBeLessThanOrEqual(0)
+      expect(v.y + v.h).toBeGreaterThanOrEqual(900)
+    }
   })
 })

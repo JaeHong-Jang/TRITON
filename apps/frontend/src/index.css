@@ -1,13 +1,41 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Pretendard Variable";
+  src: url("/fonts/pretendard/PretendardVariable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 45 920;
+  font-display: swap;
+}
+
 @theme {
-  --font-sans: "Pretendard", "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --font-sans: "Pretendard Variable", "Pretendard", "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   --color-pro: #c2410c;
   --color-pro-soft: #fff1e6;
   --color-con: #1d4ed8;
   --color-con-soft: #e8efff;
   --color-wood: #7c4a26;
-  --color-ink: #1c1917;
+  --color-ink: #302923;
+  --color-stone-50: #faf8f4;
+  --color-stone-100: #f0eae1;
+  --color-stone-200: #e2d9cb;
+  --color-stone-300: #cbbfae;
+  --color-stone-400: #a09282;
+  --color-stone-500: #75695e;
+  --color-stone-600: #625549;
+  --color-stone-700: #514439;
+  --color-stone-800: #3d332a;
+  --color-stone-900: #29221d;
+  --color-brass-50: #faf6ed;
+  --color-brass-100: #f1e7d3;
+  --color-brass-200: #e5d1ac;
+  --color-brass-300: #dfbf8b;
+  --color-brass-400: #c2a16b;
+  --color-brass-500: #a18452;
+  --color-brass-600: #8b7049;
+  --color-brass-700: #745935;
+  --color-brass-800: #5a4227;
+  --color-brass-900: #40321f;
 }
 
 html,
@@ -17,11 +45,18 @@ body,
 }
 
 body {
-  background: #f5f2ec;
-  color: #1c1917;
+  background: #f6f2ea;
+  color: #302923;
   overflow-x: hidden;
 }
 
 button:disabled {
   cursor: not-allowed;
 }
+
+:where(a, button, input, textarea, select, summary):focus-visible {
+  outline: 3px solid #8b7049;
+  outline-offset: 3px;
+}
+
+::selection { background: #e5d1ac; color: #302923; }

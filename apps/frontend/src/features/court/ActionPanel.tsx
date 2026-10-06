@@ -1,7 +1,7 @@
 // 판사 행동 패널
 import { useState } from 'react'
 import type { ActionLevel, Instance, Leaning } from '../../api/types'
-import { MIN_REASON, majorityOf, seatCount } from '../../lib/trial'
+import { MIN_REASON, agentsNeedingManualReview, claimsNeedingManualReview, majorityOf, seatCount } from '../../lib/trial'
 import { Confidence, GuardedButton, LeaningPicker, ReasonBox, Term } from '../../ui/Forms'
 import { Badge } from '../../ui/Badge'
 import { leaningLabel } from '../../ui/format'
@@ -12,7 +12,7 @@ import { VerdictSummary } from './VerdictSummary'
 import { useCourtView } from './view'
 
 // 첫인상 기록 폼
-function FirstImpressionForm() {
+function FirstImpressionForm({ mockManual }: { mockManual: boolean }) {
   const judgeName = useCourt((s) => s.judgeName)
   const busy = useCourt((s) => s.busy)
   const submit = useCourt((s) => s.firstImpression)
@@ -23,7 +23,7 @@ function FirstImpressionForm() {
     <div className="space-y-3">
       <LeaningPicker value={leaning} onChange={setLeaning} />
       <Confidence value={conf} onChange={setConf} />
-      <GuardedButton className={PRIMARY} why={why} onGo={() => leaning && submit(leaning, conf)}>첫인상 기록하고 개정</GuardedButton>
+      <GuardedButton className={PRIMARY} why={why} onGo={() => leaning && submit(leaning, conf)}>{mockManual ? '첫인상 기록' : '첫인상 기록하고 개정'}</GuardedButton>
     </div>
   )
 }
@@ -130,13 +130,13 @@ function DecisionForm({ instance }: { instance: Instance }) {
       </div>
       {majority ? (
         <fieldset>
-          <legend className="mb-1 text-sm font-bold">조치 단계 <span className="text-xs font-normal text-stone-600">되돌리기 쉬울수록 AI 자율, 무거울수록 사람 승인</span></legend>
+          <legend className="mb-1 text-sm font-bold">조치 단계 <span className="text-xs font-normal text-stone-600">판사가 조치 단계를 선택합니다. 외부 조치는 실행하지 않고 승인 기록만 남깁니다.</span></legend>
           {instance === 3 && v.rec?.officer ? <p className="mb-1 text-xs text-emerald-800">재판연구관 권고: {actionLabel(ont, v.rec.officer.recommendedAction)} ({v.rec.officer.recommendedAction}, 참고용)</p> : null}
           <div className="grid gap-1.5" role="radiogroup" aria-label="조치 단계">
             {LEVELS.map((l) => (
               <button key={l} role="radio" aria-checked={action === l} onClick={() => setAction(l)} className={`flex items-center gap-2 rounded-lg border-2 px-2 py-1.5 text-left text-sm ${action === l ? 'border-stone-900 bg-amber-100' : 'border-stone-300 bg-white hover:bg-stone-50'}`}>
                 <span className="flex-1 font-semibold">{actionLabel(ont, l)} <span className="text-xs font-normal text-stone-600">({l})</span></span>
-                {needsHuman(ont, l) ? <Badge tone="amber">사람 승인</Badge> : <Badge tone="gray">AI 자율</Badge>}
+                {needsHuman(ont, l) ? <Badge tone="amber">사람 승인 기록</Badge> : <Badge tone="gray">판사 기록/안내</Badge>}
               </button>
             ))}
           </div>
@@ -206,7 +206,7 @@ export function FirstImpressionSection() {
           <h2 className="text-sm font-black text-stone-700">첫인상 · 기사만 읽고</h2>
           <JudgeNameField />
         </div>
-        <FirstImpressionForm />
+        <FirstImpressionForm mockManual={v.mockManual} />
         {error ? <p role="alert" className="rounded-md bg-red-50 p-2 text-sm text-red-800">{error}</p> : null}
       </section>
     )
@@ -267,7 +267,23 @@ export function VerdictSection() {
     )
   }
   const i = v.current
-  if (v.phase === 'final') return <div id="sec-verdict"><VerdictSummary caseId={v.caseData.id} final={v.state.final!} /></div>
+  const manualReview = v.rec ? claimsNeedingManualReview(v.rec) : []
+  const agentReview = v.rec ? agentsNeedingManualReview(v.rec) : []
+  if (v.unfinishedJob) {
+    return (
+      <section id="sec-verdict" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" aria-label="작업 미완료">
+        <b>판결 대기</b> · AI 실행이 완료되지 않아 판결을 기록할 수 없습니다. 실행 그래프에서 상태를 확인하고 실패·취소된 실행은 재시도하세요.
+      </section>
+    )
+  }
+  if (v.phase === 'final') return <div id="sec-verdict"><VerdictSummary caseId={v.caseData.id} final={v.state.final!} noGroundTruth={v.caseData.origin === 'manual'} /></div>
+  if (v.phase === 'review') {
+    return (
+      <section id="sec-verdict" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" aria-label="실패 근거 검토">
+        <b>실패 근거 검토</b> · 검증에 실패한 근거를 모두 채택 또는 기각해야 판결할 수 있습니다. 공개된 변론의 근거 줄에서 판사 결정을 기록하세요.
+      </section>
+    )
+  }
   if (v.phase !== 'seats' && v.phase !== 'decision') {
     return (
       <section id="sec-verdict" className="rounded-xl border border-dashed border-stone-300 bg-white/60 p-3 text-sm text-stone-600" aria-label="판결 단계">
@@ -281,6 +297,11 @@ export function VerdictSection() {
         <h2 className="text-sm font-black text-stone-700">판결</h2>
         <JudgeNameField />
       </div>
+      {manualReview.length || agentReview.length ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-800">
+          근거 검증 실패 또는 주장 미제출 · 판사 검토 필요: {[...manualReview.map((c) => c.id), ...agentReview.map((a) => a.label)].join(', ')}. 이 역할은 성공 제출로 보지 말고 판결 사유에서 직접 판단하세요.
+        </p>
+      ) : null}
       {v.phase === 'seats' ? <SeatForm key={`${i}-${v.state.instances[i].seats.length}`} instance={i} seat={(v.state.instances[i].seats.length + 1) as 1 | 2 | 3} /> : <DecisionForm instance={i} />}
       {error ? <p role="alert" className="rounded-md bg-red-50 p-2 text-sm text-red-800">{error}</p> : null}
     </section>

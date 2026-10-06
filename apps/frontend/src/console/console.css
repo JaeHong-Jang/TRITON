@@ -1,0 +1,44 @@
+/* 석조 법정 콘솔 공통 표현 */
+.tribunal-console { background: #f6f2ea; }
+.tribunal-sidebar { background: #241d18; color: #c9bcab; }
+.tribunal-sidebar-cta { min-height: 43px; align-items: center; justify-content: center; gap: 8px; border: 1px solid #715b41; border-radius: 5px; background: #382c21; color: #ead4ae; font-size: 12px; font-weight: 700; }
+.tribunal-sidebar-cta:hover { background: #483827; }
+.tribunal-sidebar-cta span { font-size: 22px; font-weight: 400; }
+.tribunal-nav-active { background: #453628; color: #f7e8ce; }
+.tribunal-nav-link { color: #c1b5a6; }
+.tribunal-nav-muted { color: #a99c8a; }
+.tribunal-nav-link:hover, .tribunal-nav-muted:hover { background: #392c21; color: #f8ecd7; }
+.tribunal-topbar { background: #fcfaf6; border-bottom: 1px solid #ded5c8; }
+.tribunal-main { background: #f6f2ea; }
+.tribunal-panel { box-shadow: 0 2px 8px #40321f05; }
+.tribunal-button-primary, .tribunal-button-secondary { min-height: 41px; }
+.tribunal-eyebrow { color: #745935; font-size: 12px; font-weight: 700; }
+.tribunal-hero { position: relative; isolation: isolate; overflow: hidden; min-height: 330px; border: 1px solid #6b5943; border-radius: 8px; background: #2c241d; color: #fff9ee; }
+.tribunal-hero-art { position: absolute; z-index: -2; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 40%; }
+.tribunal-hero::before { content: ''; position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg, #241d18f5 0%, #241d18e6 30%, #241d187a 58%, #241d1820 100%); }
+.tribunal-hero-copy { padding: 36px 38px; max-width: 590px; }
+.tribunal-hero h2 { font-family: var(--font-sans); font-size: clamp(26px, 3.05vw, 40px); font-weight: 700; letter-spacing: -.035em; line-height: 1.5; }
+.tribunal-hero-description { max-width: 400px; margin-top: 16px; color: #e2d4c1; font-size: 14px; line-height: 1.8; }
+.tribunal-hero-actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 24px; }
+.tribunal-hero-actions a { display: inline-flex; min-height: 41px; align-items: center; gap: 24px; padding: 0 17px; border-radius: 5px; font-size: 13px; font-weight: 700; }
+.tribunal-hero-primary { background: #e5d1ac; color: #40321f; }
+.tribunal-hero-primary:hover { background: #f1e7d3; }
+.tribunal-hero-secondary { border: 1px solid #a99980; color: #f6eee0; background: #241d187a; }
+.tribunal-hero-secondary:hover { background: #514439; }
+.tribunal-kpi { position: relative; padding: 20px; }
+.tribunal-kpi::before { position: absolute; content: ''; left: 0; top: 20px; bottom: 20px; width: 3px; background: #b8955c; border-radius: 4px; }
+.tribunal-registration { overflow: hidden; border: 1px solid #cbbfae; border-radius: 8px; background: #fff; }
+.tribunal-registration-head { position: relative; isolation: isolate; min-height: 174px; padding: 28px; background: #e8e1d6; }
+.tribunal-registration-head::after { position: absolute; z-index: -1; content: ''; inset: 0; background: linear-gradient(90deg, #e8e1d6 24%, #e8e1d6f5 48%, #e8e1d6b8 72%, #e8e1d680), url('/art/stone-tribunal.png') right 46%/cover; }
+.tribunal-registration-title { color: #302923; font-family: var(--font-sans); font-size: 23px; font-weight: 700; line-height: 1.5; letter-spacing: -.035em; }
+.tribunal-case-card { transition: border-color .18s, box-shadow .18s; }
+.tribunal-case-card:hover { border-color: #a18452; box-shadow: 0 4px 12px #40321f08; }
+@media (max-width: 640px) {
+  .tribunal-hero-copy { padding: 27px 22px; }
+  .tribunal-hero::before { background: linear-gradient(90deg, #241d18f5, #241d18d9 70%, #241d1899); }
+  .tribunal-registration-head { padding: 22px; }
+  .tribunal-registration-head::after { background: linear-gradient(90deg, #e8e1d6f5, #e8e1d6d9), url('/art/stone-tribunal.png') center/cover; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tribunal-console *, .tribunal-console *::before, .tribunal-console *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

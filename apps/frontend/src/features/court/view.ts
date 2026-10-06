@@ -1,14 +1,22 @@
 // 법정 화면에서 쓰는 파생 값 계산
 import { useMemo } from 'react'
-import type { Claim, Evidence, Instance, TrialRecord } from '../../api/types'
+import type { Claim, Evidence, Instance, JobInfo, TrialRecord } from '../../api/types'
 import { latestActivity } from '../../lib/activity'
 import { balanceOf, evidenceWeights } from '../../lib/scale'
-import { currentInstance, phaseOf, revealedClaims, seatCount, type Phase } from '../../lib/trial'
+import { currentInstance, phaseOf, revealedClaims, seatCount, type Phase, type Records, type TrialState } from '../../lib/trial'
 import { useCourt } from './store'
 
 // 근거를 한 줄로 요약
 export function evidenceText(e: Evidence): string {
   return e.kind === 'absence' ? `부재 · '${e.keyword}'` : `#${e.sentenceNo} · ${e.quote}`
+}
+
+
+// 작업 상태까지 반영한 법정 단계
+export function courtPhase(state: TrialState, records: Records, job: JobInfo | null): Phase {
+  const base = phaseOf(state, records)
+  const unfinishedJob = !!job && job.status !== 'done'
+  return unfinishedJob && base !== 'need_record' && base !== 'first_impression' ? 'hearing' : base
 }
 
 // 법정 화면 파생 값 훅
@@ -19,6 +27,9 @@ export function useCourtView() {
   const viewing = useCourt((s) => s.viewing)
   const focus = useCourt((s) => s.focus)
   const job = useCourt((s) => s.job)
+  const execution = useCourt((s) => s.execution)
+  const workflow = useCourt((s) => s.workflow)
+  const controlBusy = useCourt((s) => s.controlBusy)
   const events = useCourt((s) => s.events)
   const started = useCourt((s) => s.started)
   const jobError = useCourt((s) => s.jobError)
@@ -26,7 +37,8 @@ export function useCourtView() {
   return useMemo(() => {
     if (!caseData || !state) return null
     const current = currentInstance(state)
-    const phase: Phase = phaseOf(state, records)
+    const unfinishedJob = !!job && job.status !== 'done'
+    const phase = courtPhase(state, records, job)
     const viewInstance: Instance = viewing ?? current
     const rec: TrialRecord | undefined = records[viewInstance]
     const shown: Claim[] = rec ? revealedClaims(state, rec) : []
@@ -35,7 +47,8 @@ export function useCourtView() {
     const live = viewInstance === current
     const writing = live && state.writing === current
     const activity = writing ? latestActivity(events, true, hidden) : []
-    const needStart = live && !state.final && !job && (phase === 'need_record' || (phase === 'first_impression' && !started))
+    const mockManual = import.meta.env.VITE_MOCK === '1' && caseData.origin === 'manual'
+    const needStart = !mockManual && live && !state.final && (!job || (!job.id && job.status === 'error')) && (phase === 'need_record' || (phase === 'first_impression' && !started))
     const last = live && phase === 'hearing' ? shown.at(-1) : undefined
     const focusEvidence = focus ? Object.values(records).flatMap((r) => r?.claims ?? []).flatMap((c) => c.evidence).find((e) => e.id === focus) ?? null : null
     return {
@@ -47,11 +60,15 @@ export function useCourtView() {
       focusEvidence,
       writing,
       activity,
-      needStart,
+      needStart, mockManual,
       job,
+      unfinishedJob,
+      execution,
+      workflow,
+      controlBusy,
       events,
       jobError,
       total: rec?.claims.length ?? 0,
     }
-  }, [caseData, state, records, viewing, focus, job, events, started, jobError])
+  }, [caseData, state, records, viewing, focus, job, execution, workflow, controlBusy, events, started, jobError])
 }

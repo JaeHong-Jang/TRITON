@@ -16,12 +16,17 @@ export type ActionLevel = 'L0' | 'L1' | 'L2' | 'L3'
 export type Leaning = 'clickbait' | 'not_clickbait'
 // 판사 근거 판정
 export type Ruling = 'admitted' | 'struck'
+// 실행 작업 상태
+export type RunStatus = 'queued' | 'running' | 'done' | 'error' | 'interrupted' | 'cancelled'
+// 실행 노드 상태
+export type StepStatus = 'pending' | 'active' | 'complete' | 'blocked' | 'error'
 
 // 기사 문장
 export interface Sentence { no: number; text: string }
 // 공개 사건
 export interface Case {
   id: string
+  origin?: 'manual' | null
   category: string
   subcategory: string
   title: string
@@ -30,6 +35,9 @@ export interface Case {
   variantOf: string | null
   attack: string | null
 }
+
+// 직접 기사 등록 요청
+export interface NewCase { requestId: string; title: string; body: string; category?: string }
 
 // AI 서기 권고
 export interface Screening { isClickbait: boolean; confidence: number; reason: string; claimType: string | null }
@@ -40,6 +48,7 @@ export interface CaseProgress { instance: 0 | Instance; stage: 'new' | 'in_trial
 // 접수처 사건 요약
 export interface CaseSummary {
   id: string
+  origin?: 'manual' | null
   category: string
   subcategory: string
   title: string
@@ -104,6 +113,7 @@ export interface TrialRecord {
   calls: Call[]
   trace: AgentEvent[]
   agentStats: Record<string, AgentStat>
+  execution?: { version: '1'; runId: string; attempt: number }
 }
 
 // 판사석
@@ -127,7 +137,7 @@ export interface LedgerEntry {
   context: LedgerContext
 }
 // 새 장부 기록 요청
-export type NewLedgerEntry = Omit<LedgerEntry, 'id' | 'at'>
+export type NewLedgerEntry = Omit<LedgerEntry, 'id' | 'at'> & { requestId?: string }
 
 // 정답
 export interface Answer {
@@ -165,20 +175,51 @@ export interface Stats {
   agents: { selfCorrectionRate: number | null; escalations: number }
 }
 
+// 실행 그래프 정적 정의
+export interface WorkflowDefinition {
+  version: '1'
+  nodes: { id: string; label: string; actor: 'code' | 'llm' | 'human' }[]
+  edges: { from: string; to: string; condition: string }[]
+  limits: { maxCalls: number; maxRevisions: number; maxRunAttempts: number }
+}
+
 // 재판 생성 작업 상태
 export interface JobInfo {
   id: string
   caseId: string
   instance: Instance
-  status: 'queued' | 'running' | 'done' | 'error'
+  status: RunStatus
   step: string
   done: number
   total: number
   error: string | null
   startedAt: string | null
+  attempt?: number
+  graphVersion?: '1'
+  createdAt?: string
+  updatedAt?: string
   events: AgentEvent[]
   partial: TrialRecord | null
 }
+// 실행 그래프 사건별 보기
+export interface ExecutionView {
+  version: '1'
+  caseId: string
+  instance: Instance
+  mode: 'live' | 'replay' | 'not_started'
+  disclosure: 'hidden' | 'open'
+  phase: string
+  reason: string
+  steps: { id: string; label: string; actor: 'code' | 'llm' | 'human'; status: StepStatus; reason: string }[]
+  edges: { from: string; to: string; condition: string }[]
+  agents: { agentId: string; label: string; nodeId: string; nodeLabel: string; status: 'waiting' | 'running' | 'complete' | 'review' | 'error'; revisions: number | null }[]
+  run: JobInfo | null
+  controls?: Record<'start' | 'retry' | 'cancel', { allowed: boolean; reason: string }>
+  availableInstances?: Instance[]
+  limits: { maxCalls: number; maxRevisions: number; maxRunAttempts: number }
+}
+// 모델 연결 상태
+export interface Health { ok: boolean; ollama: boolean; model: string }
 // 기록실 묶음
 export interface Records { case: Case; trials: TrialRecord[]; ledger: LedgerEntry[]; answer: Answer | null }
 
@@ -211,6 +252,11 @@ export interface AgentEvent {
   // 첫인상 전에 보여도 되는 중립 문구 (단계 + 문장 번호)
   publicText?: string
   claimId: string | null
+  nodeId?: string
+  fromNode?: string
+  reason?: string
+  subjectAgentId?: string
+  attempt?: number
 }
 // 에이전트별 작업 집계
 export interface AgentStat { calls: number; revisions: number; escalated: number; seconds: number }

@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react'
 
 // 패널 바탕
-export const PANEL = 'rounded-2xl border border-stone-200 bg-white'
+export const PANEL = 'tribunal-panel rounded-lg border border-stone-200 bg-white'
 
 // 제목이 있는 패널
 export function Panel({ title, aside, children, className = '' }: { title: string; aside?: ReactNode; children: ReactNode; className?: string }) {
@@ -40,11 +40,11 @@ export function ago(iso: string): string {
 }
 
 // 모든 콘솔 화면의 공통 최대 너비
-export const PAGE_MAX = 'max-w-[1320px]'
+export const PAGE_MAX = 'max-w-[1600px]'
 
 // 화면 공통 바깥 여백 틀
 export function PageShell({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`mx-auto w-full space-y-5 p-4 min-[900px]:p-6 ${PAGE_MAX} ${className}`}>{children}</div>
+  return <div className={`mx-auto w-full space-y-6 p-4 min-[900px]:p-7 ${PAGE_MAX} ${className}`}>{children}</div>
 }
 
 // 제목이 있는 화면 틀
@@ -53,7 +53,7 @@ export function PageFrame({ title, sub, actions, children }: { title: string; su
     <PageShell>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black tracking-tight">{title}</h2>
+          <h2 className="text-[28px] font-bold tracking-tight">{title}</h2>
           {sub ? <p className="mt-1 max-w-2xl text-sm leading-relaxed text-stone-600">{sub}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
@@ -64,7 +64,7 @@ export function PageFrame({ title, sub, actions, children }: { title: string; su
 }
 
 // 흰 바탕 보조 버튼
-export const BTN = 'inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3.5 py-2 text-sm font-semibold text-stone-800 transition-colors hover:bg-stone-50'
+export const BTN = 'tribunal-button-secondary inline-flex items-center justify-center gap-2 rounded-md border border-stone-200 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-brass-50'
 
-// 검은 바탕 주 버튼
-export const BTN_DARK = 'inline-flex items-center gap-1.5 rounded-lg bg-stone-900 px-3.5 py-2 text-sm font-bold text-white transition-colors hover:bg-stone-700 disabled:opacity-50'
+// 황동색 주 버튼
+export const BTN_DARK = 'tribunal-button-primary inline-flex items-center justify-center gap-2 rounded-md bg-brass-700 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-brass-800 disabled:opacity-50'

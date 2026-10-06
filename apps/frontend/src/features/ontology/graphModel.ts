@@ -101,7 +101,7 @@ export function buildGraph(ont: Ontology): GGraph {
   const levels = Object.keys(ont.actions) as ActionLevel[]
   const AW = 206
   const ax0 = (width - levels.length * (AW + 22) + 22) / 2
-  const AUTONOMY = { ai: 'AI 자율', human_approval: '사람 승인', human_only: '사람만' }
+  const AUTONOMY = { ai: '기록/안내', human_approval: '사람 승인', human_only: '사람만' }
   levels.forEach((l, i) => {
     const a = ont.actions[l]
     nodes.push({ id: `action:${l}`, kind: 'action', label: a.label, sub: `${AUTONOMY[a.autonomy]} · ${l}`, x: ax0 + i * (AW + 22) + AW / 2, y: ROW.action, w: AW, h: 58, tone: AUTONOMY_TONE[a.autonomy], solid: a.autonomy === 'human_only' })

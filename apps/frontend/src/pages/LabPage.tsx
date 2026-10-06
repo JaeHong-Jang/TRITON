@@ -148,7 +148,7 @@ function LabJudge({ session, caseId, title, onDone }: { session: LabSession; cas
   const cond = session.condition
   const { data, error, loading } = useAsync<{ c: Case; rec: Records['trials'][number] | null }>(async () => {
     if (cond === 'A') return { c: await api.caseById(caseId), rec: null }
-    const r = await api.records(caseId)
+    const r = await api.records(caseId, session.id)
     return { c: r.case, rec: r.trials.find((t) => t.instance === 1) ?? null }
   }, [caseId, cond])
   const [leaning, setLeaning] = useState<Leaning | null>(null)

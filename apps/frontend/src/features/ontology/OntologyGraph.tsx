@@ -112,7 +112,7 @@ function describe(ont: Ontology, n: GNode): { title: string; tag: string; lines:
   }
   const a = ont.actions[key as 'L0']
   const who = { ai: 'AI가 스스로 실행할 수 있습니다.', human_approval: '사람 판사가 승인해야 실행됩니다.', human_only: '사람만 결정할 수 있습니다. AI는 제안도 하지 못합니다.' }[a.autonomy]
-  return { title: `${a.label} (${key})`, tag: { ai: 'AI 자율', human_approval: '사람 승인', human_only: '사람만' }[a.autonomy], lines: [who, '되돌리기 쉬울수록 AI에게 맡기고, 되돌리기 어려울수록 사람이 맡습니다.'], bullets: [], bulletsTitle: '' }
+  return { title: `${a.label} (${key})`, tag: { ai: '기록/안내', human_approval: '사람 승인', human_only: '사람만' }[a.autonomy], lines: [who, '판사가 조치 단계를 선택하고 장부에 승인 기록을 남깁니다.'], bullets: [], bulletsTitle: '' }
 }
 
 // 온톨로지 그래프 컴포넌트

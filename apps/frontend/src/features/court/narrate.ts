@@ -40,6 +40,11 @@ export function narrate(s: TrialState, records: Records, ont: Ontology | null, s
         detail: `${claimLabel(ont, last.type)} · ${last.stance === 'pro' ? '찬성(낚시성이다)' : '반대(낚시성 아니다)'}.${rebut} 근거마다 채택·기각을 정할 수 있고, 급하면 「건너뛰기」로 모두 공개합니다.`,
       }
     }
+    case 'review':
+      return {
+        title: '검증 실패 근거를 먼저 판정해 주세요',
+        detail: '코드 검증을 통과하지 못한 근거는 판사가 채택 또는 기각해야 판결 단계로 넘어갑니다. 실패 근거를 채택해도 원래 검증 결과는 바뀌지 않습니다.',
+      }
     case 'seats': {
       const seat = inst.seats.length + 1
       return {

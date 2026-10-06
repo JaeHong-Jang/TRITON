@@ -213,15 +213,15 @@ export function measureBubble(text: string, w: number, opts: { fs: number; maxLi
 
 // 화면 크기에 맞춘 SVG 보기 영역
 export function viewBoxOf(width: number, height: number, narrow: boolean): { x: number; y: number; w: number; h: number } {
-  const base = narrow ? { x: 150, y: 120, w: 1300, h: 760 } : { x: 0, y: 0, w: 1600, h: 900 }
+  const base = narrow ? { x: 150, y: 0, w: 1300, h: 900 } : { x: 0, y: 0, w: 1600, h: 900 }
   if (!width || !height) return base
   const h = Math.max(base.h, base.w / (width / height))
   return { ...base, y: base.y - (h - base.h) * 0.5, h }
 }
 
-// 모바일 작은 무대의 보기 영역 (법대·변론석 윗부분만 가로로 넓게 잘라 보임)
+// 모바일 작은 무대에서 검증관·양측 단상·천칭 전체를 보존하는 영역
 export function miniViewBoxOf(width: number, height: number): { x: number; y: number; w: number; h: number } {
-  const w = 1300
-  const h = width && height ? w * (height / width) : 470
-  return { x: 150, y: 150, w, h }
+  const w = 1600
+  const h = Math.max(900, width && height ? w * (height / width) : 900)
+  return { x: 0, y: -(h - 900) / 2, w, h }
 }

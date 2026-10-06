@@ -37,9 +37,11 @@ function activeJobs() {
 
 // 지금 일하는 역할과 남은 업무 수
 function workload(): { doing: Map<AgentRole, NonNullable<AgentProfile['working']>>; pending: Map<AgentRole, number> } {
+  const { disclosure } = mockState()
   const doing = new Map<AgentRole, NonNullable<AgentProfile['working']>>()
   const pending = new Map<AgentRole, number>()
   for (const { j, info } of activeJobs()) {
+    if (disclosure(j.caseId) === 'hidden') continue
     const rec = j.rec
     if (!rec || !j.offsets) {
       const idx = Math.min(info.done, j.steps.length - 1)
@@ -75,7 +77,7 @@ function workload(): { doing: Map<AgentRole, NonNullable<AgentProfile['working']
 
 // 작업 정보에서 이벤트와 중간 기록 떼기
 function brief(i: JobInfo): Dashboard['activeJobs'][number] {
-  return { id: i.id, caseId: i.caseId, instance: i.instance, status: i.status, step: i.step, done: i.done, total: i.total, error: i.error, startedAt: i.startedAt ?? null }
+  return { id: i.id, caseId: i.caseId, instance: i.instance, status: i.status, step: i.step, done: i.done, total: i.total, error: i.error, startedAt: i.startedAt ?? null, attempt: i.attempt, graphVersion: i.graphVersion, createdAt: i.createdAt, updatedAt: i.updatedAt }
 }
 
 // 장부 기록 한 줄 설명
@@ -145,13 +147,32 @@ function agents(): AgentProfile[] {
 
 // 대시보드 응답
 function dashboard(): Dashboard {
-  const { defs, ledger, summarize } = mockState()
+  const { defs, ledger, summarize, disclosure } = mockState()
   const sums = [...defs.keys()].map(summarize)
   const running = activeJobs()
-  const claims = released().flatMap(({ rec }) => rec.claims)
+  const publicCases = new Set(ledger.filter((e) => !e.labSessionId && (e.type === 'first_impression' || e.type === 'final')).map((e) => e.caseId))
+  const finalEntries = ledger.filter((e) => e.type === 'final' && !e.labSessionId)
+  const claims = released().filter(({ caseId }) => publicCases.has(caseId)).flatMap(({ rec }) => rec.claims)
   const evidence = claims.flatMap((c) => c.evidence)
+  const screeningTotal = finalEntries.filter((e) => defs.get(e.caseId)?.docket.screening && defs.get(e.caseId)?.answer).length
+  const screeningCorrect = finalEntries.filter((e) => {
+    const d = defs.get(e.caseId)
+    return d?.docket.screening && d.answer ? d.docket.screening.isClickbait === d.answer.isClickbait : false
+  }).length
+  const revised = claims.filter((c) => c.revisions > 0).length
+  const hidden = new Map<string, ActivityItem>()
+  for (const { j, info } of running) {
+    if (disclosure(j.caseId) !== 'hidden') continue
+    const at = info.startedAt ?? info.createdAt ?? j.createdAt
+    const previous = hidden.get(j.caseId)
+    if (!previous || previous.at > at) hidden.set(j.caseId, { at, caseId: j.caseId, kind: 'agent', text: info.step })
+  }
   const recent: ActivityItem[] = [
-    ...running.flatMap(({ j, info }) => (info.events.length ? info.events.slice(-4).map((e) => ({ at: e.at, caseId: j.caseId, kind: 'agent' as const, text: `${j.rec?.bench.find((a) => a.id === e.agentId)?.name ?? '증거 검증관'} · ${e.text}` })) : [{ at: new Date().toISOString(), caseId: j.caseId, kind: 'agent' as const, text: info.step }])),
+    ...running.flatMap(({ j, info }) => {
+      if (disclosure(j.caseId) === 'hidden') return []
+      return info.events.length ? info.events.slice(-4).map((e) => ({ at: e.at, caseId: j.caseId, kind: 'agent' as const, text: `${j.rec?.bench.find((a) => a.id === e.agentId)?.name ?? '증거 검증관'} · ${e.text}` })) : [{ at: info.updatedAt ?? info.startedAt ?? j.createdAt, caseId: j.caseId, kind: 'agent' as const, text: info.step }]
+    }),
+    ...hidden.values(),
     ...ledger.filter((e) => !e.labSessionId).map((e) => ({ at: e.at, caseId: e.caseId, kind: 'ledger' as const, text: describe(e) })),
     ...released().map(({ caseId, rec }) => ({ at: rec.createdAt, caseId, kind: 'agent' as const, text: `${rec.instance}심 변론 ${rec.claims.length}건 제출` })),
   ]
@@ -164,8 +185,8 @@ function dashboard(): Dashboard {
     activeJobs: running.map(({ info }) => brief(info)),
     agentsWorking: agents().filter((a) => a.working).length,
     kpis: {
-      screeningAccuracy: 34 / 42,
-      selfCorrectionRate: 0.67,
+      screeningAccuracy: screeningTotal ? screeningCorrect / screeningTotal : null,
+      selfCorrectionRate: claims.length ? revised / claims.length : null,
       escalations: claims.filter((c) => c.escalated).length,
       perjuryRate: evidence.length ? evidence.filter((e) => e.status === 'fabricated').length / evidence.length : null,
       humanOverrides: ledger.filter((e) => e.type === 'evidence_ruling' && !e.labSessionId).length,
@@ -181,7 +202,8 @@ function intake(body: Record<string, unknown>): { jobId: string } {
   if (!ids.length) throw new ApiError(404, '검토할 사건이 없습니다')
   const id = `intake-${++intakeSeq}`
   const steps = ids.flatMap((c) => [`서기가 ${c} 기사 읽기`, `서기가 ${c} 사실 확인`, `서기가 ${c} 권고 작성`])
-  jobs.set(id, { id, caseId: ids[0], instance: 0 as 1, startedAt: Date.now(), steps })
+  const now = new Date().toISOString()
+  jobs.set(id, { id, caseId: ids[0], instance: 0 as 1, startedAt: Date.now(), steps, attempt: 1, createdAt: now, updatedAt: now })
   return { jobId: id }
 }
 

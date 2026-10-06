@@ -6,8 +6,16 @@ import { ErrorNote } from '../../ui/Feedback'
 import { useAsync } from '../../ui/useAsync'
 
 // 정답 공개 카드
-export function AnswerCard({ caseId, verdict, labSessionId }: { caseId: string; verdict: Leaning; labSessionId?: string }) {
-  const { data, error } = useAsync(() => (labSessionId ? api.labAnswer(labSessionId, caseId) : api.answer(caseId)), [caseId, labSessionId])
+export function AnswerCard({ caseId, verdict, labSessionId, noGroundTruth }: { caseId: string; verdict: Leaning; labSessionId?: string; noGroundTruth?: boolean }) {
+  const { data, error } = useAsync(() => (noGroundTruth ? Promise.resolve(null) : labSessionId ? api.labAnswer(labSessionId, caseId) : api.answer(caseId)), [caseId, labSessionId, noGroundTruth])
+  if (noGroundTruth) {
+    return (
+      <div className="rounded-lg border border-stone-300 bg-stone-50 p-3 text-sm text-stone-700" aria-label="정답 없음">
+        <p className="font-bold">직접 등록 기사라 정답 데이터가 없습니다.</p>
+        <p className="mt-1 text-xs">이 사건의 판결은 판사가 남긴 근거와 장부 기록으로 검토합니다. 정답 정확도 통계에는 포함하지 않습니다.</p>
+      </div>
+    )
+  }
   if (error) return <ErrorNote message={error} />
   if (!data) return null
   const right = (data.isClickbait ? 'clickbait' : 'not_clickbait') === verdict

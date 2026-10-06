@@ -122,13 +122,13 @@ function Legend({ stance, total, narrow }: { stance: Stance; total: number; narr
 function Cloth({ narrow }: { narrow: boolean }) {
   return (
     <g>
-      <path d="M600 396 Q800 344 1000 396 C1040 470 1062 600 1084 722 Q1062 738 1042 722 Q1020 744 998 722 Q976 744 954 722 Q932 744 910 722 Q888 744 866 722 Q844 744 822 722 Q800 744 778 722 Q756 744 734 722 Q712 744 690 722 Q668 744 646 722 Q624 740 604 722 Q582 738 560 722 L516 722 C538 600 560 470 600 396 Z" fill="#efe9da" />
-      <path d="M800 360 C776 470 774 600 790 724 H880 C862 600 870 470 864 366 Z" fill="#d9d1bd" opacity={0.55} />
-      <path d="M632 414 C612 520 600 620 596 722 H668 C668 620 676 520 690 424 Z" fill="#d9d1bd" opacity={0.4} />
-      <path d="M940 414 C960 520 970 620 972 722 H1040 C1034 620 1020 520 990 424 Z" fill="#d9d1bd" opacity={0.4} />
-      <path d="M600 396 Q800 344 1000 396" fill="none" stroke="#fff" strokeWidth={4} opacity={0.6} />
+      <path d="M600 396 Q800 344 1000 396 C1040 470 1062 600 1084 722 Q1062 738 1042 722 Q1020 744 998 722 Q976 744 954 722 Q932 744 910 722 Q888 744 866 722 Q844 744 822 722 Q800 744 778 722 Q756 744 734 722 Q712 744 690 722 Q668 744 646 722 Q624 740 604 722 Q582 738 560 722 L516 722 C538 600 560 470 600 396 Z" fill="#e7f2fb" stroke="#8aa9c4" strokeWidth={2} opacity={0.96} />
+      <path d="M800 360 C776 470 774 600 790 724 H880 C862 600 870 470 864 366 Z" fill="#9ecfe0" opacity={0.35} />
+      <path d="M632 414 C612 520 600 620 596 722 H668 C668 620 676 520 690 424 Z" fill="#9ecfe0" opacity={0.25} />
+      <path d="M940 414 C960 520 970 620 972 722 H1040 C1034 620 1020 520 990 424 Z" fill="#9ecfe0" opacity={0.25} />
+      <path d="M600 396 Q800 344 1000 396" fill="none" stroke="#fff" strokeWidth={4} opacity={0.86} />
       <g transform="translate(800 590)">
-        <rect x={narrow ? -150 : -130} y={-36} width={narrow ? 300 : 260} height={narrow ? 88 : 76} rx={14} fill={C.ink} opacity={0.82} />
+        <rect x={narrow ? -150 : -130} y={-36} width={narrow ? 300 : 260} height={narrow ? 88 : 76} rx={14} fill="#122033" opacity={0.9} />
         <text y={narrow ? -4 : -6} textAnchor="middle" fontSize={narrow ? 30 : 23} fontWeight={800} fill="#fff">첫인상 기록 전</text>
         <text y={narrow ? 36 : 26} textAnchor="middle" fontSize={narrow ? 28 : 21} fontWeight={700} fill={C.brassLight}>천칭 가림</text>
       </g>
@@ -153,12 +153,11 @@ export default function Scale2d({ weights, hidden, focusId, agents, narrow, onPi
   const tone = (id: string) => agents[id]
   return (
     <g>
-      <rect x={792} y={430} width={16} height={284} fill={C.brassDark} />
-      <rect x={796} y={430} width={5} height={284} fill={C.brassLight} opacity={0.6} />
+      <rect x={792} y={430} width={16} height={284} rx={8} fill="#7d96ad" />
+      <rect x={796} y={430} width={5} height={284} rx={2.5} fill="#ffffff" opacity={0.72} />
       <path d="M778 700 Q800 680 822 700 Z" fill={C.brass} />
-      <rect x={742} y={706} width={116} height={26} rx={9} fill={C.woodDark} />
-      <rect x={742} y={706} width={116} height={9} rx={4.5} fill={C.woodLight} />
-      <rect x={752} y={730} width={96} height={6} rx={3} fill={C.brassDark} />
+      <rect x={742} y={706} width={116} height={26} rx={11} fill="#ffffff" stroke="#8aa9c4" strokeWidth={2} />
+      <rect x={752} y={730} width={96} height={6} rx={3} fill="#10b9c8" opacity={0.45} />
       <g transform={`translate(${PIVOT.x} ${PIVOT.y})`}>
         <g className="c2d-beam" style={{ transform: `rotate(${-a}rad)` }}>
           <rect x={-ARM - 8} y={-6} width={ARM * 2 + 16} height={12} rx={6} fill={C.brass} />

@@ -2,19 +2,22 @@
 import { describe, expect, it } from 'vitest'
 import type { Claim, Instance, Judge, Leaning, TrialRecord } from '../api/types'
 import { entryFor } from './ledger'
-import { autoAppeal, currentInstance, majorityOf, phaseOf, replay, startTrial, step, type Records, type TrialEvent, type TrialState } from './trial'
+import { autoAppeal, claimsNeedingManualReview, currentInstance, majorityOf, phaseOf, replay, startTrial, step, type Records, type TrialEvent, type TrialState } from './trial'
 
 // 테스트용 판사
 const judge = (seat: 1 | 2 | 3 = 1): Judge => ({ seat, name: '판사', soloMode: seat > 1 })
 // 테스트용 주장
-const claim = (id: string): Claim => ({
-  id, agentId: 'p', round: 0, type: 'exaggeration', stance: 'pro', text: '주장', strength: 2, rebuts: null, revisions: 0, escalated: false,
-  evidence: [{ id: `${id}-E`, kind: 'quote', stance: 'pro', sentenceNo: 1, quote: '문장', keyword: null, status: 'verified', foundIn: 1 }],
+const claim = (id: string, status: Claim['evidence'][number]['status'] = 'verified', empty = false): Claim => ({
+  id, agentId: 'p', round: 0, type: 'exaggeration', stance: 'pro', text: '주장', strength: 2, rebuts: null, revisions: empty ? 2 : 0, escalated: empty,
+  evidence: empty ? [] : [{ id: `${id}-E`, kind: 'quote', stance: 'pro', sentenceNo: 1, quote: '문장', keyword: null, status, foundIn: 1 }],
 })
 // 테스트용 재판 기록
-const record = (instance: Instance, n = 2): TrialRecord => ({
+const record = (instance: Instance, n = 2, bad: string[] = []): TrialRecord => ({
   caseId: 'c', instance, ontologyVersion: 1, model: { name: 'm', options: {} }, createdAt: '', bench: [], rounds: [],
-  claims: Array.from({ length: n }, (_, k) => claim(`i${instance}-C${k + 1}`)), screening: null, officer: null, calls: [], trace: [], agentStats: {},
+  claims: Array.from({ length: n }, (_, k) => {
+    const id = `i${instance}-C${k + 1}`
+    return claim(id, bad.includes(id) ? 'fabricated' : 'verified')
+  }), screening: null, officer: null, calls: [], trace: [], agentStats: {},
 })
 const reason = '충분히 긴 판결 사유입니다'
 
@@ -30,6 +33,16 @@ const first: TrialEvent = { type: 'first_impression', instance: 1, judge: judge(
 
 describe('1심', () => {
   const records: Records = { 1: record(1) }
+
+  it('AI 기록 없이도 첫인상을 저장하고 재생하며 판결은 대기한다', () => {
+    expect(phaseOf(startTrial('c'), {})).toBe('first_impression')
+    const s = run({}, [first])
+    expect(s.first).toEqual({ leaning: 'clickbait', confidence: 60 })
+    expect(phaseOf(s, {})).toBe('need_record')
+    expect(step(s, seat(1, 1, 'clickbait'), {})).toBe(s)
+    expect(step(s, first, {})).toBe(s)
+    expect(phaseOf(s, records)).toBe('hearing')
+  })
 
   it('첫인상 전에는 변론을 들을 수 없다', () => {
     expect(phaseOf(run(records, hear(1)), records)).toBe('first_impression')
@@ -67,6 +80,21 @@ describe('1심', () => {
     const e = (id: string): TrialEvent => ({ type: 'rule', instance: 1, judge: judge(), evidenceId: id, ruling: 'struck' })
     const s = run(records, [first, ...hear(1).slice(0, 1), e('i1-C1-E'), e('i1-C2-E')])
     expect(s.rulings).toEqual({ 'i1-C1-E': 'struck' })
+  })
+
+  it('검증 실패 근거를 명시적으로 판정해야 판결 단계로 간다', () => {
+    const recs: Records = { 1: record(1, 2, ['i1-C2']) }
+    const heard = run(recs, [first, ...hear(1)])
+    expect(phaseOf(heard, recs)).toBe('review')
+    const ruled = step(heard, { type: 'rule', instance: 1, judge: judge(), evidenceId: 'i1-C2-E', ruling: 'struck' }, recs)
+    expect(phaseOf(ruled, recs)).toBe('seats')
+  })
+
+  it('빈 주장으로 사람에게 넘어간 역할은 별도 검토 대상으로 표시된다', () => {
+    const rec = record(1)
+    rec.claims[1] = claim('i1-C2', 'verified', true)
+    expect(claimsNeedingManualReview(rec).map((c) => c.id)).toEqual(['i1-C2'])
+    expect(phaseOf(run({ 1: rec }, [first, ...hear(1)]), { 1: rec })).toBe('seats')
   })
 })
 

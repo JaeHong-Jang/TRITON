@@ -1,6 +1,7 @@
 // 서버 API 호출 래퍼
 import type {
-  AgentProfile, Answer, Case, CaseSummary, Condition, Dashboard, Instance, JobInfo, LabSession, LedgerEntry, NewLedgerEntry, Ontology, Policy, ProgressDoc, Records, Stats, TrialRecord,
+  AgentProfile, Answer, Case, CaseSummary, Condition, Dashboard, ExecutionView, Instance, JobInfo, LabSession, LedgerEntry, NewLedgerEntry, Ontology, Policy, ProgressDoc, Records, Stats, TrialRecord, WorkflowDefinition,
+  NewCase, Health,
 } from './types'
 import { ApiError } from './error'
 
@@ -34,16 +35,22 @@ function query(params: Record<string, string | undefined>): string {
 
 // 서버 데이터 접근 함수 모음
 export const api = {
+  health: () => request<Health>('GET', '/health'),
   progress: () => request<ProgressDoc>('GET', '/progress'),
   ontology: () => request<Ontology>('GET', '/ontology'),
+  workflow: () => request<WorkflowDefinition>('GET', '/workflow'),
   cases: (p: { track?: string; stage?: string } = {}) => request<CaseSummary[]>('GET', `/cases${query(p)}`),
+  createCase: (body: NewCase) => request<Case>('POST', '/cases', body),
   caseById: (id: string) => request<Case>('GET', `/cases/${id}`),
-  trial: (id: string, n: Instance) => request<TrialRecord>('GET', `/cases/${id}/trials/${n}`),
+  trial: (id: string, n: Instance, labSessionId?: string) => request<TrialRecord>('GET', `/cases/${id}/trials/${n}${query({ labSessionId })}`),
+  execution: (id: string, n: Instance) => request<ExecutionView>('GET', `/cases/${id}/execution${query({ instance: String(n) })}`),
   createTrial: (id: string, n: Instance, judgeNotes?: string) => request<{ jobId: string }>('POST', `/cases/${id}/trials/${n}`, { judgeNotes }),
   job: (jobId: string, since?: number) => request<JobInfo>('GET', `/jobs/${jobId}${query({ since: since === undefined ? undefined : String(since) })}`),
+  retryJob: (jobId: string) => request<{ jobId: string }>('POST', `/jobs/${jobId}/retry`),
+  cancelJob: (jobId: string) => request<JobInfo>('POST', `/jobs/${jobId}/cancel`),
   ledger: (caseId?: string) => request<LedgerEntry[]>('GET', `/ledger${query({ caseId })}`),
   postLedger: (entry: NewLedgerEntry) => request<LedgerEntry>('POST', '/ledger', entry),
-  records: (id: string) => request<Records>('GET', `/records/${id}`),
+  records: (id: string, labSessionId?: string) => request<Records>('GET', `/records/${id}${query({ labSessionId })}`),
   answer: (id: string) => request<Answer>('GET', `/cases/${id}/answer`),
   labAnswer: (sessionId: string, caseId: string) => request<Answer>('GET', `/lab/sessions/${sessionId}/answers/${caseId}`),
   stats: () => request<Stats>('GET', '/stats'),

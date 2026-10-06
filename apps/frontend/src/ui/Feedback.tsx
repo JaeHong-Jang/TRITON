@@ -37,7 +37,7 @@ export function ErrorNote({ message, onRetry }: { message: string; onRetry?: () 
 export function PageTitle({ title, sub }: { title: string; sub?: string }) {
   return (
     <div className="mb-4">
-      <h2 className="text-2xl font-black tracking-tight">{title}</h2>
+      <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
       {sub ? <p className="mt-1 text-sm text-stone-600">{sub}</p> : null}
     </div>
   )

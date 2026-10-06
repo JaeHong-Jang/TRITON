@@ -8,7 +8,7 @@ interface Spec { t: string; text: string; st: 1 | 2 | 3; ev: Raw[] }
 // 모의 사건 정의
 export interface CaseDef {
   case: Case
-  answer: Answer
+  answer?: Answer
   docket: Docket
   team: 2 | 3
   pro: Spec[]

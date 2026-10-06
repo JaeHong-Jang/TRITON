@@ -1,11 +1,11 @@
 // 1심·2심·3심 재판 진행 상태기계
-import type { ActionLevel, Claim, Instance, Judge, Leaning, Ruling, TrialRecord } from '../api/types'
+import type { ActionLevel, AgentEvent, Claim, Instance, Judge, Leaning, Ruling, TrialRecord } from '../api/types'
 
 // 판결·사유 최소 글자 수
 export const MIN_REASON = 10
 
 // 심급 진행 단계
-export type Phase = 'first_impression' | 'hearing' | 'seats' | 'decision' | 'need_record' | 'final'
+export type Phase = 'first_impression' | 'hearing' | 'review' | 'seats' | 'decision' | 'need_record' | 'final'
 // 심급별 재판 기록
 export type Records = Partial<Record<Instance, TrialRecord>>
 
@@ -63,10 +63,11 @@ export function phaseOf(s: TrialState, records: Records): Phase {
   if (s.final) return 'final'
   const i = currentInstance(s)
   const rec = records[i]
-  if (!rec) return 'need_record'
   if (i === 1 && !s.first) return 'first_impression'
+  if (!rec) return 'need_record'
   const inst = s.instances[i]
   if (inst.revealed.length < rec.claims.length || s.writing === i) return 'hearing'
+  if (!reviewedFailedEvidence(s, rec)) return 'review'
   return inst.seats.length < seatCount(i) ? 'seats' : 'decision'
 }
 
@@ -74,6 +75,31 @@ export function phaseOf(s: TrialState, records: Records): Phase {
 export function revealedClaims(s: TrialState, rec: TrialRecord): Claim[] {
   const ids = s.instances[rec.instance].revealed
   return rec.claims.filter((c) => ids.includes(c.id))
+}
+
+// 판결 전 명시 판정이 필요한 실패 근거 id 목록
+export function failedEvidenceIds(rec: TrialRecord): string[] {
+  return rec.claims.flatMap((c) => c.evidence.filter((e) => e.status !== 'verified').map((e) => e.id))
+}
+
+// 빈 주장으로 사람 검토가 필요한 주장 목록
+export function claimsNeedingManualReview(rec: TrialRecord): Claim[] {
+  return rec.claims.filter((c) => c.escalated && c.evidence.length === 0)
+}
+
+// 주장 없이 사람 검토로 넘어간 에이전트 목록
+export function agentsNeedingManualReview(rec: TrialRecord): { agentId: string; label: string }[] {
+  const fromClaims = new Set(claimsNeedingManualReview(rec).map((c) => c.agentId))
+  const byId = new Map(rec.bench.map((a) => [a.id, a.name]))
+  const ids = new Set<string>()
+  for (const [agentId, st] of Object.entries(rec.agentStats)) if (st.escalated > 0 && !fromClaims.has(agentId)) ids.add(agentId)
+  for (const e of rec.trace as AgentEvent[]) if (e.kind === 'escalate' && !e.claimId && e.agentId && !fromClaims.has(e.agentId)) ids.add(e.agentId)
+  return [...ids].map((agentId) => ({ agentId, label: byId.get(agentId) ?? agentId }))
+}
+
+// 실패 근거를 모두 판정했는지 여부
+export function reviewedFailedEvidence(s: TrialState, rec: TrialRecord): boolean {
+  return failedEvidenceIds(rec).every((id) => !!s.rulings[id])
 }
 
 // 판사석 의견이 갈렸는지 여부
@@ -94,7 +120,12 @@ export function step(s: TrialState, e: TrialEvent, records: Records): TrialState
   const i = currentInstance(s)
   const rec = records[i]
   const phase = phaseOf(s, records)
-  if (!rec || e.instance !== i) return s
+  if (e.instance !== i) return s
+  if (e.type === 'first_impression') {
+    if (phase !== 'first_impression' || !Number.isFinite(e.confidence) || e.confidence < 0 || e.confidence > 100) return s
+    return { ...s, first: { leaning: e.leaning, confidence: e.confidence } }
+  }
+  if (!rec) return s
   const inst = s.instances[i]
   // 현재 심급 상태 갱신
   const withInst = (patch: Partial<InstanceState>): TrialState => ({ ...s, instances: { ...s.instances, [i]: { ...inst, ...patch } } })
@@ -102,9 +133,6 @@ export function step(s: TrialState, e: TrialEvent, records: Records): TrialState
   const validConfidence = (c: number) => Number.isFinite(c) && c >= 0 && c <= 100
 
   switch (e.type) {
-    case 'first_impression':
-      if (phase !== 'first_impression' || !validConfidence(e.confidence)) return s
-      return { ...s, first: { leaning: e.leaning, confidence: e.confidence } }
     case 'reveal':
       if (phase !== 'hearing' || rec.claims[inst.revealed.length]?.id !== e.claimId) return s
       return withInst({ revealed: [...inst.revealed, e.claimId] })
@@ -149,7 +177,7 @@ export function stepsFor(i: Instance): StepInfo[] {
 // 현재 판사 단계 코드
 export function currentStepCode(phase: Phase, i: Instance): string | null {
   if (phase === 'first_impression') return 'H1'
-  if (phase === 'hearing') return 'H2'
+  if (phase === 'hearing' || phase === 'review') return 'H2'
   if (phase === 'seats' || phase === 'decision') return i === 1 ? 'H3' : i === 2 ? 'H4' : 'H5'
   return null
 }

@@ -11,3 +11,59 @@
 @media (prefers-reduced-motion: reduce) {
   .court-claim-in, .court-flash, .court-dot { animation: none !important; }
 }
+/* 참고 사진의 월넛과 황동을 적용한 법정 화면 */
+.court-domain-page { --court-night: #30231d; --court-line: #d4c9b9; --court-paper: #f6f2ea; --court-gold: #b8955c; --color-stone-50: #f8f5ef; --color-stone-100: #eee8de; --color-stone-200: #e0d7ca; --color-stone-300: #cbbfae; --color-stone-400: #a09282; --color-stone-500: #817362; --color-stone-600: #6b5e4f; --color-stone-700: #55483c; --color-stone-800: #40342b; --color-stone-900: #30231d; background: var(--court-paper); color: #342b25; }
+.court-domain-heading { flex-shrink: 0; padding: 22px 28px 0; border-bottom: 1px solid var(--court-line); background: var(--court-paper); }
+.court-domain-heading h2 { max-width: 1100px; margin: 0; font-family: var(--font-sans); font-size: clamp(17px, 1.5vw, 23px); font-weight: 700; line-height: 1.55; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.court-procedure-nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 13px 24px; padding: 18px 0 15px; }
+.court-procedure-nav ol { flex-wrap: wrap; gap: 5px; }
+.court-procedure-nav button { border-radius: 4px; min-height: 32px; }
+.court-procedure-nav [aria-current="step"] { background: #6c5338; color: #fff9ed; --tw-ring-color: transparent; }
+.court-domain-layout { display: grid; flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) 390px; }
+.court-desktop-stage { min-height: 0; min-width: 0; }
+.court-domain-host { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; background: #211a15; isolation: isolate; }
+.court-scene-heading { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 18px 25px; color: #c8baa4; font-size: 11px; }
+.court-scene-name { font-family: var(--font-sans); font-size: 17px; color: #f1e4ce; }
+.court-scene-body { position: relative; flex: 1; min-height: 0; display: flex; }
+.court-working-note { position: absolute; right: 16px; top: 16px; display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: #30231ded; border: 1px solid #9b784b; border-radius: 4px; color: #f7e5be; font-size: 12px; }
+.court-working-note .court-dot { width: 6px; height: 6px; border-radius: 50%; background: #e9c387; }
+.court-scene-footer { flex-shrink: 0; padding: 16px 24px 20px; color: #c8baa4; border-top: 1px solid #514032; }
+.court-evidence-summary { display: flex; flex-wrap: wrap; gap: 7px 16px; font-size: 11px; line-height: 1.6; }
+.court-evidence-summary b { font-weight: 600; color: #f4e7d0; }
+.court-selected-evidence { max-height: 72px; margin-top: 10px; overflow-y: auto; font-size: 12px; line-height: 1.7; color: #ead7b7; }
+.court-case-file { display: flex; min-width: 0; min-height: 0; flex-direction: column; gap: 18px; padding: 22px; overflow-y: auto; border-left: 1px solid var(--court-line); background: var(--court-paper); scrollbar-color: #b8a995 transparent; scrollbar-width: thin; }
+.court-case-file > * { flex-shrink: 0; }
+.court-file-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; padding-bottom: 3px; }
+.court-file-heading h2 { font-family: var(--font-sans); font-size: 18px; font-weight: 700; }
+.court-file-heading span { font-size: 10px; color: #827263; }
+.court-case-file > section { border-radius: 6px; box-shadow: none; }
+.court-case-file #sec-now { padding: 16px; border: 1px solid #cbbb9f; border-left: 3px solid #9a7742; background: #eee6d7; }
+.court-case-file #sec-now > div > p:first-child { font-size: 10px; color: #765c39; }
+.court-case-file #sec-now > div > p:nth-child(2) { margin-top: 7px; font-size: 17px; font-weight: 700; }
+.court-case-file #sec-now > div > p:nth-child(3) { line-height: 1.7; font-size: 12px; }
+.court-case-file section[aria-label="기사 원문"] { padding: 17px 0; border-width: 1px 0; border-color: var(--court-line); background: transparent; }
+.court-case-file section[aria-label="실행 그래프"] { padding: 14px; background: #f1ece3; border-color: #dfd5c7; }
+.court-case-file section[aria-label="실행 그래프"] > div > div > p:nth-of-type(2) { display: none; }
+.court-case-file #sec-claims article { border-radius: 5px; box-shadow: none; }
+.court-domain-page :where(button, summary, a):focus-visible { outline-color: #b38c49; }
+@media (max-width: 1199px) and (min-width: 1024px) { .court-domain-layout { grid-template-columns: minmax(0,1fr) 355px; } .court-case-file { padding: 18px; } }
+@media (max-width: 1023px) {
+  .court-domain-layout { display: flex; flex-direction: column; }
+  .court-desktop-stage { height: 520px; flex-shrink: 0; }
+  .court-case-file { overflow: visible; border-left: 0; }
+}
+@media (max-width: 767px) {
+  .court-domain-heading { padding: 17px 18px 0; }
+  .court-procedure-nav { gap: 12px; padding: 13px 0; }
+  .court-procedure-nav button { font-size: 11px; }
+  .court-mobile-stage { height: 272px; flex-shrink: 0; }
+  .court-scene-heading { padding: 10px 16px; font-size: 9px; }
+  .court-scene-name { font-size: 14px; }
+  .court-case-file { padding: 22px 18px; }
+  .court-working-note { right: 8px; top: 8px; padding: 5px 8px; font-size: 10px; }
+}
+
+/* 판사 입력의 주 행동과 문서 테두리 */
+.court-case-file .primary-action:not(:disabled):not([aria-disabled="true"]) { background: #745935; border-radius: 5px; color: #fff8e9; box-shadow: none; }
+.court-case-file .primary-action:not(:disabled):not([aria-disabled="true"]):hover { background: #5a4227; }
+.court-case-file #sec-first { border-width: 1px; border-color: #cbbfae; }

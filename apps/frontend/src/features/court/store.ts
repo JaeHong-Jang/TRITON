@@ -1,8 +1,9 @@
 // 법정 화면 상태 저장소
 import { create } from 'zustand'
 import { api } from '../../api/client'
-import type { ActionLevel, AgentEvent, Case, Instance, JobInfo, Leaning, LedgerEntry, Ruling } from '../../api/types'
+import type { ActionLevel, AgentEvent, Case, ExecutionView, Instance, JobInfo, Leaning, LedgerEntry, Ruling, WorkflowDefinition } from '../../api/types'
 import { lastSeq, mergeEvents } from '../../lib/activity'
+import { isJobTerminal } from '../../lib/execution'
 import { entryFor, eventFromEntry } from '../../lib/ledger'
 import { emptyRecord, keepRevealOrder, replayLedger } from '../../lib/reveal'
 import { autoAppeal, currentInstance, phaseOf, startTrial, step, type Records, type TrialEvent, type TrialState } from '../../lib/trial'
@@ -21,12 +22,15 @@ interface CourtStore {
   focus: string | null
   viewing: Instance | null
   job: JobInfo | null
+  execution: ExecutionView | null
+  workflow: WorkflowDefinition | null
   events: AgentEvent[]
   jobError: string | null
   started: boolean
   skipping: boolean
   loading: boolean
   busy: boolean
+  controlBusy: boolean
   error: string | null
   open: (id: string) => Promise<void>
   setFocus: (evidenceId: string | null) => void
@@ -35,6 +39,8 @@ interface CourtStore {
   clearError: () => void
   setSolo: (solo: boolean) => void
   start: () => Promise<void>
+  retryJob: () => Promise<void>
+  cancelJob: () => Promise<void>
   skip: () => void
   firstImpression: (leaning: Leaning, confidence: number) => Promise<void>
   revealNext: () => Promise<void>
@@ -62,12 +68,28 @@ function writePref(key: string, value: string) {
   }
 }
 
+// 장부 요청 중복 방지 키
+function requestIdFor(s: TrialState, e: TrialEvent, records: Records): string {
+  const entry = entryFor(s, e, records)
+  const data = JSON.stringify({ caseId: entry.caseId, instance: entry.instance, judge: entry.judge, type: entry.type, data: entry.data })
+  let hash = 0
+  for (let k = 0; k < data.length; k++) hash = (hash * 31 + data.charCodeAt(k)) >>> 0
+  return `ledger:${entry.caseId}:${entry.instance}:${entry.type}:${hash.toString(36)}`
+}
+
+// 장부 id 기준 병합
+function appendLedger(list: LedgerEntry[], saved: LedgerEntry): LedgerEntry[] {
+  return list.some((e) => e.id === saved.id) ? list : [...list, saved]
+}
+
 // 법정 상태 저장소
 export const useCourt = create<CourtStore>((set, get) => {
   // 작업 루프 세대 번호 (사건을 바꾸면 이전 루프를 멈춤)
   let runId = 0
   // 법정 열기 요청 번호 (겹친 요청은 마지막 것만 반영)
   let openSeq = 0
+  // 첫인상 공개 전환 번호 (숨김 상태 poll 응답 폐기)
+  let disclosureEpoch = 0
   // 판사 정보 만들기
   const judge = (seat: 1 | 2 | 3 = 1, name = get().judgeName) => ({ seat, name, soloMode: get().soloMode && (get().state ? currentInstance(get().state!) > 1 : false) })
   // 작성 중인 심급 표시 바꾸기
@@ -81,6 +103,33 @@ export const useCourt = create<CourtStore>((set, get) => {
       return { state: { ...replayLedger(s.caseId, events, s.records), writing: s.state.writing } }
     })
 
+  // 실행 그래프 다시 읽기
+  const refreshExecution = async (id = get().caseId, n = get().state ? currentInstance(get().state!) : 1): Promise<void> => {
+    if (!id) return
+    try {
+      const execution = await api.execution(id, n)
+      if (get().caseId === id) set({ execution })
+    } catch {
+      if (get().caseId === id) set({ execution: null })
+    }
+  }
+
+  // 사건 기록을 새로 읽되 작성 중인 중간 기록은 유지
+  const refreshRecords = async (id = get().caseId): Promise<void> => {
+    if (!id) return
+    const r = await api.records(id)
+    if (get().caseId !== id) return
+    const nextRecords: Records = Object.fromEntries(r.trials.map((t) => [t.instance, t]))
+    set((s) => {
+      const writing = s.state?.writing ?? null
+      if (writing && s.records[writing] && (!nextRecords[writing] || s.records[writing]!.claims.length > nextRecords[writing]!.claims.length)) nextRecords[writing] = s.records[writing]
+      const events = r.ledger.map(eventFromEntry).filter((e): e is TrialEvent => e !== null)
+      const state = events.length ? replayLedger(id, events, nextRecords) : startTrial(id)
+      return { caseData: r.case, records: nextRecords, ledger: r.ledger, state: { ...state, writing } }
+    })
+    await refreshExecution(id)
+  }
+
   // 이벤트 하나를 장부에 기록하고 상태에 반영
   const dispatch = async (e: TrialEvent): Promise<void> => {
     const { state, records, busy } = get()
@@ -91,11 +140,18 @@ export const useCourt = create<CourtStore>((set, get) => {
     }
     set({ busy: true, error: null })
     try {
-      const saved = await api.postLedger(entryFor(state, e, records))
+      const requestId = requestIdFor(state, e, records)
+      const saved = await api.postLedger({ ...entryFor(state, e, records), requestId })
       // 기록하는 동안 작업이 진행됐을 수 있어 최신 상태에 다시 적용
       const fresh = get()
       const next = step(fresh.state!, e, fresh.records)
-      set({ state: next, ledger: [...fresh.ledger, saved], busy: false, ...(e.type === 'appeal' ? { focus: null, skipping: false } : {}) })
+      set({ state: next, ledger: appendLedger(fresh.ledger, saved), busy: e.type === 'first_impression', ...(e.type === 'appeal' ? { focus: null, skipping: false } : {}) })
+      if (e.type === 'first_impression') {
+        disclosureEpoch++
+        set({ events: [] })
+        await refreshRecords(fresh.caseId)
+        set({ busy: false })
+      } else await refreshExecution(fresh.caseId, currentInstance(next))
       const auto = autoAppeal(next, fresh.records)
       if (auto) await dispatch(auto)
       else if (e.type === 'appeal') await maybeStart(get().state!)
@@ -110,24 +166,33 @@ export const useCourt = create<CourtStore>((set, get) => {
   }
 
   // 심급 작업을 시작하고 끝날 때까지 이벤트와 중간 기록을 받아 오기
-  const runJob = async (n: Instance): Promise<void> => {
+  const runJob = async (n: Instance, existingJobId?: string): Promise<void> => {
     const { caseId, job, state } = get()
-    if (!caseId || !state || (job && job.status !== 'error')) return
+    if (import.meta.env.VITE_MOCK === '1' && get().caseData?.origin === 'manual') return
+    if (!caseId || !state || (!existingJobId && job && !isJobTerminal(job.status))) return
     const mine = ++runId
     // 같은 사건·같은 작업 루프인지 확인
     const alive = () => mine === runId && get().caseId === caseId
+    const now = new Date().toISOString()
     set({
       started: true, skipping: false, jobError: null, events: [],
-      records: { ...get().records, [n]: emptyRecord(caseId, n) },
-      job: { id: '', caseId, instance: n, status: 'queued', step: '작업을 요청하는 중', done: 0, total: 0, error: null, startedAt: null, events: [], partial: null },
+      records: existingJobId ? get().records : { ...get().records, [n]: emptyRecord(caseId, n) },
+      job: { id: existingJobId ?? '', caseId, instance: n, status: 'queued', step: '작업을 요청하는 중', done: 0, total: 0, error: null, startedAt: null, attempt: job?.attempt ?? 1, graphVersion: '1', createdAt: now, updatedAt: now, events: [], partial: null },
     })
     setWriting(n)
     rederive()
     try {
-      const { jobId } = await api.createTrial(caseId, n)
+      const jobId = existingJobId ?? (await api.createTrial(caseId, n)).jobId
+      if (!alive()) return
+      set((s) => (s.job ? { job: { ...s.job, id: jobId } } : {}))
       for (;;) {
-        const info = await api.job(jobId, lastSeq(get().events))
+        const pollEpoch = disclosureEpoch
+        const info = await api.job(jobId, pollEpoch === disclosureEpoch ? lastSeq(get().events) : 0)
         if (!alive()) return
+        if (pollEpoch !== disclosureEpoch) {
+          set({ events: [] })
+          continue
+        }
         const events = mergeEvents(get().events, info.events)
         const part = info.partial
         set((s) => {
@@ -136,7 +201,12 @@ export const useCourt = create<CourtStore>((set, get) => {
           return { job: info, events, records: merged ? { ...s.records, [n]: merged } : s.records }
         })
         if (info.partial) rederive()
-        if (info.status === 'error') throw new Error(info.error ?? '재판 생성에 실패했습니다')
+        await refreshExecution(caseId, n)
+        if (info.status === 'error' || info.status === 'interrupted' || info.status === 'cancelled') {
+          set({ job: info, jobError: info.error ?? (info.status === 'cancelled' ? '작업이 취소되었습니다' : info.status === 'interrupted' ? '작업이 중단되었습니다' : '재판 생성에 실패했습니다') })
+          setWriting(null)
+          return
+        }
         if (info.status === 'done') break
         await new Promise((r) => setTimeout(r, POLL_MS))
       }
@@ -145,11 +215,15 @@ export const useCourt = create<CourtStore>((set, get) => {
       set((s) => ({ records: { ...s.records, [n]: keepRevealOrder(rec, s.state?.instances[n].revealed ?? []) }, job: null }))
       setWriting(null)
       rederive()
+      await refreshExecution(caseId, n)
     } catch (err) {
       if (!alive()) return
-      const rest = { ...get().records }
-      delete rest[n]
-      set({ jobError: (err as Error).message, job: null, records: rest })
+      const message = (err as Error).message
+      set((s) => {
+        const records = { ...s.records }
+        if (!s.job?.id) delete records[n]
+        return { records, jobError: message, job: s.job ? { ...s.job, status: 'error', step: '작업 요청 실패', error: message } : null }
+      })
       setWriting(null)
     }
   }
@@ -165,27 +239,34 @@ export const useCourt = create<CourtStore>((set, get) => {
     focus: null,
     viewing: null,
     job: null,
+    execution: null,
+    workflow: null,
     events: [],
     jobError: null,
     started: false,
     skipping: false,
     loading: false,
     busy: false,
+    controlBusy: false,
     error: null,
 
     open: async (id) => {
       runId++
+      disclosureEpoch = 0
       const mine = ++openSeq
-      set({ caseId: id, loading: true, error: null, caseData: null, state: null, records: {}, ledger: [], focus: null, viewing: null, job: null, events: [], jobError: null, started: false, skipping: false, busy: false })
+      set({ caseId: id, loading: true, error: null, caseData: null, state: null, records: {}, ledger: [], focus: null, viewing: null, job: null, execution: null, events: [], jobError: null, started: false, skipping: false, busy: false, controlBusy: false })
       try {
-        const r = await api.records(id)
+        const [r, workflow] = await Promise.all([api.records(id), api.workflow().catch(() => null)])
         if (mine !== openSeq) return
         const records: Records = Object.fromEntries(r.trials.map((t) => [t.instance, t]))
         const events = r.ledger.map(eventFromEntry).filter((e): e is TrialEvent => e !== null)
         const state = events.length ? replayLedger(id, events, records) : startTrial(id)
-        set({ caseData: r.case, records, ledger: r.ledger, state, started: events.length > 0, loading: false })
+        set({ caseData: r.case, records, ledger: r.ledger, state, workflow, started: events.length > 0, loading: false })
+        await refreshExecution(id, currentInstance(state))
         const cur = currentInstance(state)
-        if (!records[cur] && events.some((e) => e.instance === cur)) void runJob(cur)
+        const run = get().execution?.run
+        if (run && (run.status === 'queued' || run.status === 'running')) void runJob(cur, run.id)
+        else if (!run && !records[cur] && events.some((e) => e.instance === cur)) void runJob(cur)
         else {
           const auto = autoAppeal(state, records)
           if (auto && get().caseId === id) await dispatch(auto)
@@ -216,6 +297,37 @@ export const useCourt = create<CourtStore>((set, get) => {
       }
       set({ started: true, viewing: null, error: null })
       if (!records[n]) await runJob(n)
+    },
+    retryJob: async () => {
+      const j = get().job ?? get().execution?.run
+      if (!j) return
+      set({ controlBusy: true, jobError: null, error: null })
+      try {
+        const { jobId } = await api.retryJob(j.id)
+        runId++
+        set({ job: { ...j, id: jobId, status: 'queued', step: '작업을 다시 요청하는 중', events: [], partial: j.partial }, events: [] })
+        set({ controlBusy: false })
+        void runJob(j.instance, jobId)
+      } catch (err) {
+        set({ jobError: (err as Error).message })
+        set({ controlBusy: false })
+      }
+    },
+    cancelJob: async () => {
+      const j = get().job ?? get().execution?.run
+      if (!j) return
+      set({ controlBusy: true, error: null })
+      try {
+        const info = await api.cancelJob(j.id)
+        runId++
+        set({ job: info, jobError: info.error ?? '작업이 취소되었습니다' })
+        setWriting(null)
+        await refreshExecution(info.caseId, info.instance)
+      } catch (err) {
+        set({ jobError: (err as Error).message })
+      } finally {
+        set({ controlBusy: false })
+      }
     },
     skip: () => set({ skipping: true }),
 

@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import type { ActivityItem, Dashboard } from '../api/types'
 import { useDashboard } from '../console/DashboardContext'
 import { ago, BTN, BTN_DARK, Meter, PageFrame, Panel, PANEL } from '../console/parts'
+import { jobAttemptLabel, runStatusLabel } from '../lib/execution'
 import { ErrorNote, Loading } from '../ui/Feedback'
 import { pct } from '../ui/format'
 
@@ -30,7 +31,7 @@ function judge(v: number | null, goodAt: number, badAt: number, higherBetter: bo
 function Kpi({ label, value, note, rate, good = 'none', unit, sample }: { label: string; value: string; note: string; rate?: number | null; good?: Good; unit?: string; sample?: number }) {
   const t = TONE[good]
   return (
-    <div className={`${PANEL} flex flex-col p-4`}>
+    <div className={`${PANEL} tribunal-kpi flex flex-col`}>
       <div className="flex items-center gap-2 text-xs font-bold text-stone-500">
         <span className={`h-2 w-2 rounded-full ${t.dot}`} aria-hidden />
         {label}
@@ -67,9 +68,10 @@ function Jobs({ jobs }: { jobs: Dashboard['activeJobs'] }) {
             </span>
             <span className="font-bold">{(j.instance as number) === 0 ? '서기 접수 검토' : `${j.instance}심 재판 준비`}</span>
             <Link to={`/court/${j.caseId}`} className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-semibold text-stone-600 hover:bg-stone-200">{j.caseId}</Link>
+            <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-bold text-stone-600">{runStatusLabel(j.status)}</span>
             <span className="ml-auto text-xs tabular-nums text-stone-500">{j.done}/{j.total} 단계</span>
           </div>
-          <p className="mt-1.5 text-[13px] text-stone-700">{j.step}</p>
+          <p className="mt-1.5 text-[13px] text-stone-700">{j.step} <span className="text-[11px] text-stone-500">· {jobAttemptLabel(j)}</span></p>
           <div className="mt-2"><Meter value={j.total ? j.done / j.total : 0} tone="bg-emerald-500" label={`${j.caseId} 진행률`} /></div>
         </li>
       ))}
@@ -153,17 +155,27 @@ export default function DashboardPage() {
   const k = d.kpis
   return (
     <PageFrame
-      title="오늘의 AI 법정"
-      sub="AI가 얼마나 일하고, 그 일을 얼마나 믿을 수 있는지 한눈에 봅니다. 최종 판단은 언제나 사람 판사가 합니다."
+      title="법정 운영 현황"
+      sub="사건의 흐름과 AI의 작업을 한곳에서 확인하세요."
       actions={
         <>
-          <Link to="/cases" className={BTN}>사건 접수 열기</Link>
-          <Link to="/agents" className={BTN}>작업실 보기</Link>
+          <Link to="/records" className={BTN}>감사 장부 보기</Link>
           <IntakeButton />
         </>
       }
     >
-      <div className="grid gap-5 min-[1180px]:grid-cols-[minmax(0,1fr)_380px]">
+      <section className="tribunal-hero" aria-label="TRITON AI 법정 안내">
+        <img src="/art/stone-tribunal.png" alt="" className="tribunal-hero-art" />
+        <div className="tribunal-hero-copy">
+          <h2>기사를 살피고,<br />근거에 따라 판단합니다.</h2>
+          <p className="tribunal-hero-description">AI는 주장을 펼치고, 코드는 근거를 확인합니다.<br />최종 판결은 사람이 내립니다.</p>
+          <div className="tribunal-hero-actions">
+            <Link to="/cases" className="tribunal-hero-primary">기사 등록하기 <span aria-hidden>↗</span></Link>
+            <Link to="/agents" className="tribunal-hero-secondary">AI 작업실 둘러보기 <span aria-hidden>→</span></Link>
+          </div>
+        </div>
+      </section>
+      <div className="grid gap-5 min-[1180px]:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-5">
           <div>
             <h3 className="mb-2 text-xs font-bold tracking-wide text-stone-500">진행 현황</h3>
@@ -176,7 +188,7 @@ export default function DashboardPage() {
           <div>
             <h3 className="mb-2 text-xs font-bold tracking-wide text-stone-500">AI를 얼마나 믿어도 되는가</h3>
             <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-6 [&>*]:min-[520px]:col-span-3 min-[760px]:[&>*]:col-span-2 min-[760px]:[&>*:nth-child(n+4)]:col-span-3">
-              <Kpi sample={d.finals} label="서기 판별 정확도" value={k.screeningAccuracy === null ? '-' : pct(k.screeningAccuracy)} rate={k.screeningAccuracy} good={judge(k.screeningAccuracy, 0.8, 0.6, true)} note="AI 서기의 권고가 최종 판결과 맞은 비율. 낮으면 약식 처리 범위를 좁혀야 합니다." />
+              <Kpi sample={d.finals} label="서기 판별 정확도" value={k.screeningAccuracy === null ? '-' : pct(k.screeningAccuracy)} rate={k.screeningAccuracy} good={judge(k.screeningAccuracy, 0.8, 0.6, true)} note="AI 서기의 권고가 정답과 맞은 비율. 낮으면 약식 권고 범위를 좁혀야 합니다." />
               <Kpi sample={d.finals} label="자기 수정률" value={k.selfCorrectionRate === null ? '-' : pct(k.selfCorrectionRate)} rate={k.selfCorrectionRate} good={judge(k.selfCorrectionRate, 0.7, 0.4, true)} note="AI가 틀린 근거를 스스로 고쳐 통과시킨 비율. 높을수록 사람 손이 덜 갑니다." />
               <Kpi sample={d.finals} label="위증률" value={k.perjuryRate === null ? '-' : pct(k.perjuryRate)} rate={k.perjuryRate} good={judge(k.perjuryRate, 0.05, 0.15, false)} note="위증 = 기사 원문에 없는 문장을 지어내 인용한 것. 그런 근거의 비율이며 낮을수록 믿을 수 있습니다." />
               <Kpi label="사람에게 넘긴 주장" value={String(k.escalations)} unit="건" good={k.escalations === 0 ? 'good' : 'warn'} note="두 번 고쳐도 틀려서 AI가 포기하고 판사에게 넘긴 주장 수. 사람이 꼭 봐야 하는 지점입니다." />

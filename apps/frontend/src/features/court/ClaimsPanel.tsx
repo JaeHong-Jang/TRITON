@@ -109,14 +109,14 @@ export function ClaimsPanel() {
   const v = useCourtView()
   const focus = useCourt((s) => s.focus)
   if (!v) return null
-  const canRule = v.live && (v.phase === 'hearing' || v.phase === 'seats' || v.phase === 'decision')
+  const canRule = v.live && (v.phase === 'hearing' || v.phase === 'review' || v.phase === 'seats' || v.phase === 'decision')
   const lastId = v.live && v.phase === 'hearing' ? v.shown.at(-1)?.id : undefined
   const agents = v.rec?.bench ?? []
   return (
     <section id="sec-claims" aria-label="공개된 주장" className="rounded-xl">
       <h2 className="mb-2 text-sm font-black text-stone-700">변론 {v.shown.length}개 공개{v.writing ? ' · AI 작성 중' : ` / ${v.total}`}</h2>
       <HearingBar />
-      {v.hidden ? <p className="rounded-lg bg-stone-100 p-3 text-sm text-stone-600">첫인상을 기록하기 전에는 변론이 가려져 있습니다. 에이전트는 법정 그림에서 일하는 모습만 보입니다.</p> : null}
+      {v.hidden ? <p className="rounded-lg bg-stone-100 p-3 text-sm text-stone-600">첫인상을 기록하기 전에는 변론이 가려져 있습니다. AI 작업 상태는 실행 기록에서 확인할 수 있습니다.</p> : null}
       <div className="space-y-3">
         {GROUPS.map((g) => {
           const list = v.shown.filter((c) => c.stance === g.stance)
