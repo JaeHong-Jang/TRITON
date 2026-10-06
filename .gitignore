@@ -20,3 +20,4 @@ playwright-report/
 # 로컬 도구 상태
 .fablize/
 .omc/
+.omx/
