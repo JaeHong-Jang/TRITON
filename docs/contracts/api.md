@@ -1,8 +1,12 @@
 # API 계약 (frontend ↔ backend)
 
+직접 기사 등록: [registration.md](registration.md)의 POST /api/cases와 저장·중복 방지·정답 없음 규칙을 따른다.
+
 단일 서버: FastAPI가 `:8000`에서 `/api/*`와 `frontend/dist`(SPA)를 함께 서빙. 개발 중 Vite는 `/api`를 `:8000`으로 프록시.
 모든 응답 JSON UTF-8, 오류는 `{ "detail": "<한국어 사유>" }` + 4xx/5xx.
 이 문서가 바뀌면 `apps/backend/app/schemas.py`와 `apps/frontend/src/api/types.ts`를 함께 고친다.
+
+실행 상태·재개·취소·공개 제한의 확장 계약은 [execution.md](execution.md)를 따른다. 아래 기존 응답에도 첫인상/실험실 공개 정책을 적용한다. 숨긴 주장·권고는 빈 배열/null로 반환하며 오류·이벤트·집계로 우회 공개하지 않는다. 판결은 장부의 형식과 현재 절차를 서버에서 검증한 뒤 기록한다.
 
 ## 공용 타입 (TypeScript 표기, Python도 같은 키 camelCase)
 
@@ -114,7 +118,7 @@ interface LedgerEntry {
 | GET | `/api/cases/{id}` | | `Case` |
 | GET | `/api/cases/{id}/trials/{n}` | | `TrialRecord` (없으면 404) |
 | POST | `/api/cases/{id}/trials/{n}` | `{ judgeNotes?: string }` | `{ jobId: string }` 생성 시작. 같은 사건·심급 작업이 대기·진행 중이면 그 jobId를 돌려줌 (화면 재접속용). 기록이 이미 있으면 409, n=2·3은 직전 심급 `appeal`이 장부에 없으면 409. 항소 사유는 서버가 장부에서 붙이므로 화면은 `judgeNotes`에 넣지 않음 |
-| GET | `/api/jobs/{jobId}` | | `{ id, caseId, instance, status: 'queued'\|'running'\|'done'\|'error', step: string, done: number, total: number, error: string \| null }` |
+| GET | `/api/jobs/{jobId}` | | `JobInfo` (기존 필드 + interrupted/cancelled 상태, attempt, graphVersion, 생성·갱신 시각; execution.md 참고) |
 | GET | `/api/ledger` | `?caseId=` | `LedgerEntry[]` (시간순) |
 | POST | `/api/ledger` | `LedgerEntry`에서 `id`,`at` 제외 | `LedgerEntry` |
 | GET | `/api/records/{id}` | | `{ case: Case, trials: TrialRecord[], ledger: LedgerEntry[], answer: Answer \| null }` answer는 final 이후에만 |

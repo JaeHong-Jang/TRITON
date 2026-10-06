@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-02",
+  "updatedAt": "2026-10-03",
   "statuses": {
     "todo": "예정",
     "doing": "진행 중",
@@ -462,6 +462,140 @@
           "owner": "harness",
           "status": "doing",
           "verify": "git log origin/main"
+        }
+      ]
+    },
+    {
+      "id": "P11",
+      "title": "실행 그래프 · 재판 절차",
+      "features": [
+        {
+          "id": "P11.1",
+          "title": "규칙으로 제어하는 에이전트 실행 그래프",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-02-execution-graph.md (합성 API·회귀 테스트·브라우저, 실제 모델 미검증)"
+        },
+        {
+          "id": "P11.2",
+          "title": "실행 저장 · 재개 · 취소",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-02-execution-graph.md (합성 API·회귀 테스트·브라우저, 실제 모델 미검증)"
+        },
+        {
+          "id": "P11.3",
+          "title": "첫인상 공개 범위 · 사람 판결 서버 검증",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-02-execution-graph.md (합성 API·회귀 테스트·브라우저, 실제 모델 미검증)"
+        },
+        {
+          "id": "P11.4",
+          "title": "법정 · 작업실 · 기록실 실행 상태",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-02-execution-graph.md (합성 API·회귀 테스트·브라우저, 실제 모델 미검증)"
+        }
+      ]
+    },
+    {
+      "id": "P12",
+      "title": "기사 직접 등록",
+      "features": [
+        {
+          "id": "P12.1",
+          "title": "새 기사 등록 · 저장 · 법정 연결",
+          "owner": "fullstack",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-02-article-registration.md (등록·브라우저 검증, 실제 A.X 분석 미검증)"
+        }
+      ]
+    },
+    {
+      "id": "P13",
+      "title": "영역 법정 시각 개편",
+      "features": [
+        {
+          "id": "P13.1",
+          "title": "애니메이션 법정 · 검증관 · 대치 단상",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-02-domain-courtroom.md (자동 검사·모의 데스크톱/모바일·독립 리뷰, 실제 모델 미검증)"
+        }
+      ]
+    },
+    {
+      "id": "P14",
+      "title": "미래도시 콘솔 개편",
+      "features": [
+        {
+          "id": "P14.1",
+          "title": "도시형 작업실 · 흰 로봇 · 미래 법정 · 콘솔",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-02-future-city.md (전체 회귀·빌드·데스크톱/모바일·독립 리뷰, 실제 모델 미연결)"
+        }
+      ]
+    },
+    {
+      "id": "P15",
+      "title": "목재 법정 · 단일 캐릭터",
+      "features": [
+        {
+          "id": "P15.1",
+          "title": "전통 법정 배경 · 단일 캐릭터 · 사건 기록 패널",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-03-traditional-court.md (목재 법정·첫인상 가림·근거 키보드 선택·319/390/1440px·자동 검사, 실제 모델 생성 미검증)"
+        },
+        {
+          "id": "P15.2",
+          "title": "히구루마 인물을 식신 저지맨으로 교체",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-03-judgeman.md (저지맨 단일 자산·319/390/1440px·전체 자동 검사·실제 화면·독립 리뷰)"
+        },
+        {
+          "id": "P15.3",
+          "title": "석조 원형 법정 · 3D 저지맨 · 장면 모션",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-03-stone-tribunal-motion.md (자산·모션·키보드 정지/재개·319/390/1440px·자동 검사·독립 리뷰)"
+        },
+        {
+          "id": "P15.4",
+          "title": "전체 콘솔의 석조 법정 테마 통일",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-03-tribunal-console.md (공통 테마·작업실·1440/390px·검색·키보드·자동 검사·독립 리뷰)"
+        },
+        {
+          "id": "P15.5",
+          "title": "Pretendard 글꼴 통일",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-03-pretendard.md (공식 폰트 자산·계산 스타일·319/1440px·자동 검사·독립 리뷰)"
+        }
+      ]
+    },
+    {
+      "id": "P16",
+      "title": "그래프 관제 작업실",
+      "features": [
+        {
+          "id": "P16.1",
+          "title": "실행·근거·온톨로지 관제 UI",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-03-control-room.md (백엔드 202·프론트 146, 타입·빌드·하네스, 실제/모의 1440·390px, 독립 리뷰 승인; 실제 모델 생성 미검증)"
+        },
+        {
+          "id": "P16.2",
+          "title": "옵시디언식 관계 그래프",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "docs/exec-plans/completed/2026-10-03-obsidian-graph.md (백엔드 202·프론트 151·타입/빌드/하네스, 실제 319px·모의 390/1440px, 점/라벨 선택·드래그·확대·필터·독립 리뷰)"
         }
       ]
     }

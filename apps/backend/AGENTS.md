@@ -10,6 +10,7 @@ Python 3.11+, uv. `court/`(재판 도메인, HTTP 모름) ← `app/`(FastAPI·�
 | `ontology.py` · `skills.py` | `agents/ontology.yaml` · `agents/*/SKILL.md` 로더 |
 | `llm.py` | Ollama 클라이언트 (`ax4-light:q4_K_M`) |
 | `agent_loop.py` | 에이전트 작업 루프: 읽기 → 계획 → 도구 → 초안 → 검증 → 고쳐 쓰기 → 제출/사람에게 넘김 |
+| `workflow.py` | 실제 루프의 허용 전이·종료 예산·그래프 정의 |
 | `agents.py` | 프롬프트 조립 · 응답 스키마 · 응답 정리 |
 | `evidence.py` | 증거 검증관 (인용·핵심어 부재를 원문과 코드로 대조) |
 | `instances.py` | 1·2·3심 진행 (CLI), 중간 기록·이벤트 보고 |
@@ -19,6 +20,8 @@ Python 3.11+, uv. `court/`(재판 도메인, HTTP 모름) ← `app/`(FastAPI·�
 
 ## app/ (HTTP)
 `main.py` 앱·정적 서빙 · `api.py` 라우트 · `jobs.py` 작업 큐(재판 우선) · `ledger.py` 장부 검증·사건 단계 · `stats.py` 통계 · `console.py` 대시보드·작업실 · `lab.py` 실험실 · `summary.py` 사건 요약 · `store.py` 파일 입출력 · `schemas.py` 요청 스키마.
+
+`run_store.py` 실행 스냅샷·복구 · `projection.py` 첫인상/실험실 공개 정책 · `execution.py` 실제 작업과 장부에 따른 사건 실행 화면. 계약: `docs/contracts/execution.md`. 로컬 단일 프로세스 전용.
 
 ## 테스트
 ```bash

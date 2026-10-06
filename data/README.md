@@ -5,6 +5,7 @@ AI-Hub 「낚시성 기사 탐지 데이터」에서 만든 파일. 이 README �
 | 경로 | 내용 | 공개 |
 |---|---|---|
 | `cases/cases.jsonl` | 공개 사건 (제목·부제·본문 문장) | API로 공개 |
+| `cases/manual.jsonl` | 사용자가 직접 등록한 기사 · 요청 중복 방지 정보 | 공개 기사만 API로 공개, 정답 없음 |
 | `answers/answers.jsonl` | 정답·데이터셋 메타데이터 | 최종 판결 후에만 |
 | `intake/<caseId>.json` | 서기 접수 검토 (권고 + 작업 기록) | API로 공개 |
 | `trials/<caseId>/<심급>.json` | 재판 기록 (변론, 근거 검증 결과, 에이전트 작업 기록 trace) | API로 공개 |
