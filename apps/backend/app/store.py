@@ -1,13 +1,15 @@
 # 데이터 폴더 파일 입출력
+import hashlib
 import importlib
 import json
 import os
 import threading
 from pathlib import Path
+from uuid import uuid4
 
 from court import paths
 
-PUBLIC_CASE_KEYS = ("id", "category", "subcategory", "title", "subtitle", "sentences", "variantOf", "attack")
+PUBLIC_CASE_KEYS = ("id", "origin", "category", "subcategory", "title", "subtitle", "sentences", "variantOf", "attack")
 PUBLIC_ANSWER_KEYS = ("id", "isClickbait", "part", "method", "pattern", "level", "insertedSentenceNos", "originalTitle")
 
 LOCK = threading.RLock()
@@ -30,7 +32,16 @@ def read_jsonl(rel: str) -> list[dict]:
         if not path.exists():
             return []
         lines = path.read_text(encoding="utf-8").splitlines()
-    return [json.loads(line) for line in lines if line.strip()]
+    out = []
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            if i != len(lines) - 1:
+                raise
+    return out
 
 
 # 줄 단위 JSON 파일 덧붙이기
@@ -38,8 +49,14 @@ def append_jsonl(rel: str, obj: dict) -> None:
     path = data_dir() / rel
     with LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+        lines = [json.dumps(row, ensure_ascii=False) for row in read_jsonl(rel)]
+        lines.append(json.dumps(obj, ensure_ascii=False))
+        tmp = path.with_name(path.name + ".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
 
 
 # JSON 파일 읽기
@@ -68,6 +85,17 @@ def public_case(case: dict) -> dict:
     return out
 
 
+# 직접 등록 사건 내용 지문
+def _manual_fingerprint(request_id: str, title: str, body: str, category: str) -> str:
+    payload = {"requestId": request_id, "title": title, "body": body, "category": category}
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+# 직접 등록 사건 원본 읽기
+def _manual_rows() -> list[dict]:
+    return read_jsonl("cases/manual.jsonl")
+
+
 # 공개 정답 필드 선별
 def public_answer(answer: dict) -> dict:
     return {k: answer.get(k) for k in PUBLIC_ANSWER_KEYS}
@@ -75,7 +103,33 @@ def public_answer(answer: dict) -> dict:
 
 # 사건 전체 읽기
 def load_cases() -> list[dict]:
-    return read_jsonl("cases/cases.jsonl")
+    return [*read_jsonl("cases/cases.jsonl"), *[public_case(c) for c in _manual_rows()]]
+
+
+# 직접 등록 사건 저장
+def register_manual_case(request_id: str, title: str, body: str, category: str) -> dict:
+    fingerprint = _manual_fingerprint(request_id, title, body, category)
+    with LOCK:
+        for row in _manual_rows():
+            meta = row.get("_registration") or {}
+            if meta.get("requestId") == request_id:
+                if meta.get("fingerprint") != fingerprint:
+                    raise ValueError("같은 requestId로 다른 기사 내용을 등록할 수 없습니다")
+                return public_case(row)
+        case = {
+            "id": f"manual-{uuid4()}",
+            "origin": "manual",
+            "category": category,
+            "subcategory": "사용자 입력",
+            "title": title,
+            "subtitle": "",
+            "sentences": [{"no": i, "text": line} for i, line in enumerate(body.split("\n"), start=1)],
+            "variantOf": None,
+            "attack": None,
+            "_registration": {"requestId": request_id, "fingerprint": fingerprint},
+        }
+        append_jsonl("cases/manual.jsonl", case)
+        return public_case(case)
 
 
 # 사건 하나 읽기

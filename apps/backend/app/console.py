@@ -1,7 +1,7 @@
 # 운영 콘솔 집계 (대시보드·작업실 에이전트)
 from datetime import datetime
 
-from app import jobs, ledger, stats, store
+from app import jobs, ledger, projection, stats, store
 
 ROLES = [
     ("clerk", "서기", "서기실", "clerk"),
@@ -58,11 +58,22 @@ def _totals(trials: list[dict], intakes: list[dict]) -> dict[str, dict]:
     return totals
 
 
+# 실행 중 작업 공개 텍스트
+def _working_text(job: dict) -> str:
+    if not projection.court_open(job.get("caseId", "")):
+        return "재판 준비 중" if job["status"] == "running" else "준비 대기"
+    if job.get("_recent"):
+        return job["_recent"][-1].get("text", job.get("step", ""))
+    return job.get("step", "")
+
+
 # 작업실 에이전트 목록
 def agents() -> list[dict]:
     trials, intakes = stats.runs()
+    trials = [t for t in trials if projection.include_trial_stats(t["caseId"])]
+    intakes = [i for i in intakes if projection.include_trial_stats(i["caseId"])]
     totals = _totals(trials, intakes)
-    active = jobs.active()
+    active = [j for j in jobs.active() if projection.court_open(j.get("caseId", ""))]
     rows = []
     for role, label, room, skill in ROLES:
         meta = store.court("skills").load_skill(skill) if skill else None
@@ -71,7 +82,7 @@ def agents() -> list[dict]:
             "role": role, "label": label, "room": room,
             "skill": meta["name"] if meta else None, "skillVersion": meta["version"] if meta else None,
             "totals": totals[role],
-            "working": {"caseId": running["caseId"], "instance": running["instance"], "text": running["_text"]} if running else None,
+            "working": {"caseId": running["caseId"], "instance": running["instance"], "text": _working_text(running)} if running else None,
             "queued": sum(j["status"] == "queued" and _involves(j, role) for j in active),
         })
     return rows
@@ -82,6 +93,7 @@ def _recent(trials: list[dict], intakes: list[dict], active: list[dict]) -> list
     variants = {c["id"] for c in store.load_cases() if c.get("variantOf")}
     items = [{"at": e["at"], "caseId": e["caseId"], "kind": "ledger", "text": f"{e['judge']['name']} · {e['instance']}심 {LEDGER_LABELS[e['type']]}"} for e in store.load_ledger() if not e.get("labSessionId") and e["caseId"] not in variants]
     saved = {(e["at"], e["agentId"], e["kind"], e["text"]) for r in intakes for e in r.get("trace", [])}
+    hidden = {}
     for r in [*trials, *intakes]:
         if r["caseId"] in variants:
             continue
@@ -90,7 +102,16 @@ def _recent(trials: list[dict], intakes: list[dict], active: list[dict]) -> list
     for j in active:
         if j["caseId"] in variants:
             continue
+        if not projection.court_open(j["caseId"]):
+            previous = hidden.get(j["caseId"])
+            if previous is None or previous["status"] == "queued" and j["status"] == "running":
+                hidden[j["caseId"]] = j
+            continue
         items += [{"at": e["at"], "caseId": j["caseId"], "kind": "agent", "text": e["text"]} for e in j["_recent"] if e["kind"] in ACTIVITY_KINDS and (e["at"], e["agentId"], e["kind"], e["text"]) not in saved]
+    for j in hidden.values():
+        at = j.get("startedAt") or j.get("createdAt")
+        if at:
+            items.append({"at": at, "caseId": j["caseId"], "kind": "agent", "text": _working_text(j)})
     return sorted(items, key=lambda i: datetime.fromisoformat(i["at"]), reverse=True)[:30]
 
 
@@ -98,6 +119,8 @@ def _recent(trials: list[dict], intakes: list[dict], active: list[dict]) -> list
 def dashboard() -> dict:
     snapshot = stats.compute()
     trials, intakes = stats.runs()
+    trials = [t for t in trials if projection.include_trial_stats(t["caseId"])]
+    intakes = [i for i in intakes if projection.include_trial_stats(i["caseId"])]
     active = jobs.active()
     by_case: dict[str, list[dict]] = {}
     for e in store.load_ledger():
@@ -107,7 +130,7 @@ def dashboard() -> dict:
     screening = snapshot["screening"]
     return {
         "cases": snapshot["cases"], "inTrial": sum(s in ("in_trial", "appealed") for s in stages), "finals": snapshot["finals"],
-        "activeJobs": [{k: v for k, v in j.items() if not k.startswith("_")} for j in active],
+        "activeJobs": [{k: v for k, v in projection.job(j).items() if not k.startswith("_") and k not in ("events", "partial")} for j in active],
         "agentsWorking": sum(j["status"] == "running" for j in active),
         "kpis": {
             "screeningAccuracy": round(screening["correct"] / screening["total"], 4) if screening["total"] else None,

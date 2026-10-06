@@ -6,7 +6,8 @@ import time
 import urllib.request
 
 DEFAULT_MODEL = "ax4-light:q4_K_M"
-DEFAULT_OPTIONS = {"temperature": 0, "seed": 7, "num_ctx": 8192}
+DEFAULT_OPTIONS = {"temperature": 0, "seed": 7, "num_ctx": 8192, "num_predict": 2048}
+HTTP_TIMEOUT = 120
 
 
 # Ollama 서버 주소 결정
@@ -49,7 +50,7 @@ class OllamaClient:
         }
         req = urllib.request.Request(f"{self.host}/api/chat", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
         started = time.time()
-        with urllib.request.urlopen(req, timeout=600) as res:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as res:
             reply = json.load(res)
         call = {
             "promptTokens": reply.get("prompt_eval_count") or 0,

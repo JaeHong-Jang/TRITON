@@ -16,6 +16,7 @@ SIDES = {"prosecution": ("P", "검사", "prosecutor", "검사 측"), "defense": 
 ROUND_TITLES = {"opening": "모두 주장", "cross": "반대신문", "review": "법률 검토"}
 BALANCE_RATIO_LIMIT = 0.3
 CONFIDENCE_LIMIT = 70
+INTAKE_OMITTED = object()
 
 
 # 에이전트 기록 생성
@@ -67,16 +68,16 @@ def perjury_ids(prior):
 
 
 # 1심 진행 (접수 결과 복사·검사·변호인)
-def _first_instance(case, client, notes, on_step, on_event):
-    session = Session(case, 1, client, notes, on_step, on_event, 3)
-    intake = load_intake(case["id"])
+def _first_instance(case, client, notes, on_step, on_event, attempt=1, intake_doc=INTAKE_OMITTED, save_intake=None):
+    session = Session(case, 1, client, notes, on_step, on_event, 3, attempt)
+    intake = load_intake(case["id"]) if intake_doc is INTAKE_OMITTED else intake_doc
     clerk_meta = load_skill("clerk")
     clerk_agent = {"id": "i1-K1", "side": "officer", "name": "서기", "specialty": None, "skill": clerk_meta["name"], "skillVersion": clerk_meta["version"]}
     bench = [clerk_agent, _agent(1, "prosecution", 1), _agent(1, "defense", 1)]
     session.build_partial = lambda: _record(session, bench, screening=intake["screening"] if intake else None)
     if intake is None:
         session.progress("서기 접수 검토")
-        intake = run_case(case, client, on_event, session.build_partial)
+        intake = run_case(case, client, on_event, session.build_partial, save_result=save_intake)
     session.skip("서기 접수 결과 사용")
     opening = session.add_round("opening", ROUND_TITLES["opening"])
     for agent in bench[1:]:
@@ -85,9 +86,9 @@ def _first_instance(case, client, notes, on_step, on_event):
 
 
 # 2심 진행 (전문 분담 팀·반대신문)
-def _second_instance(case, prior, client, notes, on_step, on_event):
+def _second_instance(case, prior, client, notes, on_step, on_event, attempt=1):
     size = bench_size(prior)
-    session = Session(case, 2, client, notes, on_step, on_event, 4 * size)
+    session = Session(case, 2, client, notes, on_step, on_event, 4 * size, attempt)
     pro_types, con_types = ontology.selectable_types("pro"), ontology.selectable_types("con")
     prosecutors = [_agent(2, "prosecution", i, pro_types[i - 1]) for i in range(1, size + 1)]
     defenders = [_agent(2, "defense", i, con_types[i - 1]) for i in range(1, size + 1)]
@@ -107,8 +108,8 @@ def _second_instance(case, prior, client, notes, on_step, on_event):
 
 
 # 3심 진행 (재판연구관 보고서·쟁점별 검토)
-def _third_instance(case, prior, client, notes, on_step, on_event):
-    session = Session(case, 3, client, notes, on_step, on_event, 3)
+def _third_instance(case, prior, client, notes, on_step, on_event, attempt=1):
+    session = Session(case, 3, client, notes, on_step, on_event, 3, attempt)
     officer_skill = load_skill("research-officer")
     officer_agent = {"id": "i3-O1", "side": "officer", "name": "재판연구관", "specialty": None, "skill": officer_skill["name"], "skillVersion": officer_skill["version"]}
     bench = [officer_agent, _agent(3, "prosecution", 1), _agent(3, "defense", 1)]
@@ -129,13 +130,13 @@ def _finish(session, record):
 
 
 # 심급별 TrialRecord 생성
-def run(case, instance, prior, client, judge_notes="", on_step=None, on_event=None):
+def run(case, instance, prior, client, judge_notes="", on_step=None, on_event=None, attempt=1, intake_doc=INTAKE_OMITTED, save_intake=None):
     if instance == 1:
-        return _first_instance(case, client, judge_notes, on_step, on_event)
+        return _first_instance(case, client, judge_notes, on_step, on_event, attempt, intake_doc, save_intake)
     if instance == 2:
-        return _second_instance(case, prior, client, judge_notes, on_step, on_event)
+        return _second_instance(case, prior, client, judge_notes, on_step, on_event, attempt)
     if instance == 3:
-        return _third_instance(case, prior, client, judge_notes, on_step, on_event)
+        return _third_instance(case, prior, client, judge_notes, on_step, on_event, attempt)
     raise ValueError(f"알 수 없는 심급: {instance}")
 
 

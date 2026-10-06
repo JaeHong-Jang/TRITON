@@ -4,14 +4,23 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 
+from app import jobs
 from app.api import router
 
 
 # 요청 검증 오류 응답
 async def validation_error(request: Request, exc: RequestValidationError):
     first = exc.errors()[0] if exc.errors() else {}
-    where = ".".join(str(p) for p in first.get("loc", []) if p != "body")
-    return JSONResponse({"detail": f"요청 형식이 올바르지 않습니다: {where} {first.get('msg', '')}".strip()}, status_code=422)
+    loc = list(first.get("loc", []))
+    if loc and loc[0] == "body":
+        loc = loc[1:]
+    where = ".".join(str(p) for p in loc)
+    message = first.get("msg", "")
+    if first.get("type") == "extra_forbidden":
+        message = "허용되지 않은 필드입니다"
+    elif first.get("type") == "uuid_parsing":
+        message = "requestId는 UUID여야 합니다"
+    return JSONResponse({"detail": f"요청 형식이 올바르지 않습니다: {where} {message}".strip()}, status_code=422)
 
 
 # 정적 파일과 SPA 대체 응답
@@ -31,6 +40,7 @@ async def spa(full_path: str):
 
 # 앱 생성
 def create_app() -> FastAPI:
+    jobs.recover()
     app = FastAPI(title="AI 법정")
     app.add_exception_handler(RequestValidationError, validation_error)
     app.include_router(router)

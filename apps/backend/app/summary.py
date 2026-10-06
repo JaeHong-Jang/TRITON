@@ -1,13 +1,15 @@
 # 사건 요약 조립
-from app import ledger, store
+from app import ledger, projection, store
 
 
 # 사건 요약 생성
 def case_summary(case: dict, trials: list[dict], entries: list[dict]) -> dict:
     docket = store.court("docket").classify(case, store.load_screening(case["id"]), store.load_policy())
+    docket = projection.docket(docket, case["id"])
     pub = store.public_case(case)
     return {
         "id": pub["id"],
+        "origin": pub["origin"],
         "category": pub["category"],
         "subcategory": pub["subcategory"],
         "title": pub["title"],

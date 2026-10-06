@@ -86,6 +86,7 @@ def install_fakes(monkeypatch) -> dict:
     # 가짜 모델 클라이언트
     class OllamaClient:
         model = "fake-model"
+        options = {}
 
         # 모델 응답 여부
         def available(self):
@@ -123,6 +124,11 @@ def env(tmp_path, monkeypatch):
         statuses = ("verified", "fabricated") if cid == "c1" else ("verified",)
         (data / "trials" / cid / "1.json").write_text(json.dumps(make_trial(cid, 1, s, statuses), ensure_ascii=False), encoding="utf-8")
     from app.main import create_app
+    from app import jobs
+
+    jobs.JOBS.clear()
+    while not jobs.QUEUE.empty():
+        jobs.QUEUE.get_nowait()
 
     client = TestClient(create_app())
     client.calls = calls
@@ -140,3 +146,64 @@ def ledger_body(case_id: str, type_: str, data: dict, instance: int = 1, seat: i
 # 최종 판결 본문 생성
 def final_data(verdict: str, action: str = "L1") -> dict:
     return {"verdict": verdict, "action": action, "reason": "합성 사유", "votes": [{"seat": 1, "verdict": verdict}]}
+
+
+# 장부 기록 성공 요청
+def post_ledger(env, case_id: str, type_: str, data: dict, instance: int = 1, seat: int = 1, session: str | None = None):
+    res = env.post("/api/ledger", json=ledger_body(case_id, type_, data, instance=instance, seat=seat, session=session))
+    assert res.status_code == 200, res.json()
+    return res
+
+
+# 첫인상 기록 보장
+def first_impression(env, case_id: str, session: str | None = None):
+    if not any(e["type"] == "first_impression" and e.get("labSessionId") == session for e in env.get(f"/api/ledger?caseId={case_id}").json()):
+        post_ledger(env, case_id, "first_impression", {"leaning": "clickbait", "confidence": 70}, session=session)
+
+
+# 저장 재판 기록 보장
+def ensure_trial(env, case_id: str, instance: int, statuses: tuple = ("verified",)):
+    path = env.data / "trials" / case_id / f"{instance}.json"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(make_trial(case_id, instance, scr(True, 80) if instance == 1 else None, statuses), ensure_ascii=False), encoding="utf-8")
+
+
+# 모든 주장 공개
+def reveal_all(env, case_id: str, instance: int = 1):
+    trial = env.get(f"/api/cases/{case_id}/trials/{instance}").json()
+    for claim in trial["claims"]:
+        post_ledger(env, case_id, "reveal", {"claimId": claim["id"]}, instance=instance)
+
+
+# 실패 근거 판정
+def rule_failed(env, case_id: str, instance: int = 1):
+    trial = env.get(f"/api/cases/{case_id}/trials/{instance}").json()
+    for claim in trial["claims"]:
+        for evidence in claim["evidence"]:
+            if evidence["status"] != "verified":
+                post_ledger(env, case_id, "evidence_ruling", {"evidenceId": evidence["id"], "ruling": "struck", "checkerWeight": 0}, instance=instance)
+
+
+# 판사석 기록과 최종 확정
+def finalize_case(env, case_id: str, verdict: str, instance: int = 1, action: str = "L1", votes: list[str] | None = None, session: str | None = None):
+    first_impression(env, case_id, session=session)
+    if not session:
+        reveal_all(env, case_id, instance)
+        rule_failed(env, case_id, instance)
+    seats = {1: 1, 2: 2, 3: 3}[instance]
+    chosen = votes or [verdict] * seats
+    reason = "충분히 긴 판결 사유입니다"
+    for seat, vote in enumerate(chosen, start=1):
+        post_ledger(env, case_id, "seat_verdict", {"verdict": vote, "confidence": 70, "reason": reason}, instance=instance, seat=seat, session=session)
+    data = {"verdict": verdict, "action": action, "reason": "합성 사유", "votes": [{"seat": i + 1, "verdict": v} for i, v in enumerate(chosen)]}
+    return post_ledger(env, case_id, "final", data, instance=instance, session=session)
+
+
+# 항소 가능한 1심 완료
+def appeal_case(env, case_id: str):
+    first_impression(env, case_id)
+    reveal_all(env, case_id, 1)
+    rule_failed(env, case_id, 1)
+    post_ledger(env, case_id, "seat_verdict", {"verdict": "clickbait", "confidence": 70, "reason": "충분히 긴 판결 사유입니다"})
+    return post_ledger(env, case_id, "appeal", {"reason": "항소 사유입니다"})

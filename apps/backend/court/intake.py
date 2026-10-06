@@ -20,7 +20,7 @@ def load(case_id):
 
 
 # 서기 한 사건 접수 검토 후 파일 저장
-def run_case(case, client, on_event=None, build_partial=None):
+def run_case(case, client, on_event=None, build_partial=None, should_save=None, save_result=None):
     started = time.time()
     s = Session(case, 0, client, on_event=on_event)
     s.build_partial = build_partial
@@ -28,13 +28,15 @@ def run_case(case, client, on_event=None, build_partial=None):
     clerk = {"id": "i1-K1", "name": "서기"}
     s.role = "clerk"
     s.emit(clerk["id"], "read", f"기사 {len(s.sentence_nos)}문장 읽음 · 본문에 없는 제목 핵심어 {len(s.absent)}개", public="기사 읽기")
+    s.emit(clerk["id"], "plan", "접수 계획 작성 시작", public="계획 세우기", reason="start")
     plan = agents.tidy_plan(s.ask(clerk["id"], "clerk", "plan", agents.build_prompt("clerk", "plan", absent_keywords=s.absent_text), agents.plan_schema(s.sentence_nos), optional=True), s.sentence_nos)
-    s.emit(clerk["id"], "plan", f"{', '.join(f'{n}번' for n in plan['sentenceNos']) or '전체'} 문장 사실 확인 계획", public=plan_public(plan["sentenceNos"]))
+    s.emit(clerk["id"], "plan", f"{', '.join(f'{n}번' for n in plan['sentenceNos']) or '전체'} 문장 사실 확인 계획", public=plan_public(plan["sentenceNos"]), reason="complete")
     tool_text = s.run_tools(clerk["id"], plan)
     system = agents.build_prompt("clerk", claim_types=ontology.render_catalogue(), absent_keywords=s.absent_text, tool_results=tool_text)
+    s.emit(clerk["id"], "draft", "권고 작성 시작", public="권고 작성", reason="start")
     reply = s.ask(clerk["id"], "clerk", "draft", system, agents.screening_schema(s.sentence_nos, s.absent))
     screening = agents.tidy_screening(reply, s.sentence_nos, s.absent)
-    s.emit(clerk["id"], "draft", f"권고 작성 · {'낚시성 의심' if screening['isClickbait'] else '정상으로 판단'} · 확신도 {screening['confidence']}", public="권고 작성")
+    s.emit(clerk["id"], "draft", f"권고 작성 · {'낚시성 의심' if screening['isClickbait'] else '정상으로 판단'} · 확신도 {screening['confidence']}", public="권고 작성", reason="complete")
     s.stat(clerk["id"])["seconds"] = round(time.time() - started, 2)
     s.emit(clerk["id"], "done", f"접수 검토 완료 · {'낚시성 의심' if screening['isClickbait'] else '정상'} 확신도 {screening['confidence']}", public="접수 검토 완료")
     doc = {
@@ -48,8 +50,12 @@ def run_case(case, client, on_event=None, build_partial=None):
         "calls": s.calls,
         "agentStats": s.stats,
     }
+    if save_result:
+        save_result(doc)
+        return doc
+    if should_save and not should_save():
+        return doc
     path = _path(case["id"])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
     return doc
-

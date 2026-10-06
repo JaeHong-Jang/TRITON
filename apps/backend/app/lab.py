@@ -27,7 +27,7 @@ def get(session_id: str) -> dict | None:
 # 세션 사건 표본 추출
 def _pick(size: int, rng: random.Random) -> list[str]:
     answers = store.load_answers()
-    ids = [c["id"] for c in store.load_cases() if not c.get("variantOf") and store.load_trial(c["id"], 1)]
+    ids = [c["id"] for c in store.load_cases() if not c.get("variantOf") and answers.get(c["id"]) and store.load_trial(c["id"], 1)]
     pos = [i for i in ids if answers.get(i, {}).get("isClickbait")]
     neg = [i for i in ids if i not in pos]
     rng.shuffle(pos)

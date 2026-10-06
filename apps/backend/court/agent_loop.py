@@ -5,7 +5,7 @@ import time
 import urllib.error
 from datetime import datetime, timezone
 
-from court import agents, ontology
+from court import agents, ontology, workflow
 from court.errors import ModelError
 from court.evidence import absence_candidates, find_sentences, verify
 
@@ -19,8 +19,9 @@ CHECKER = "checker"
 # 에이전트 하나의 모델 호출 상한을 지키는 작업 상태 (이벤트·호출·통계·제출된 주장)
 class Session:
     # 사건·심급·클라이언트와 진행 콜백 보관
-    def __init__(self, case, instance, client, judge_notes="", on_step=None, on_event=None, total=0):
+    def __init__(self, case, instance, client, judge_notes="", on_step=None, on_event=None, total=0, attempt=1):
         self.case, self.instance, self.client, self.on_step, self.on_event, self.total = case, instance, client, on_step, on_event, total
+        self.attempt = attempt
         self.judge_notes = judge_notes.strip() or "없음"
         self.article = agents.render_article(case)
         self.sentence_nos = [s["no"] for s in case["sentences"]]
@@ -29,6 +30,7 @@ class Session:
         self.calls, self.claims, self.rounds, self.trace, self.stats = [], [], [], [], {}
         self.claim_no = self.evidence_no = self.done = 0
         self.role = None
+        self.nodes = {}
         self.task_calls = 0
         self.build_partial = None
 
@@ -37,8 +39,26 @@ class Session:
         return self.stats.setdefault(agent_id, {"calls": 0, "revisions": 0, "escalated": 0, "seconds": 0.0})
 
     # 이벤트 기록과 발행 (그 시점의 중간 기록을 함께 전달)
-    def emit(self, agent_id, kind, text, claim_id=None, role=None, public=""):
-        event = {"seq": len(self.trace) + 1, "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "agentId": agent_id, "kind": kind, "text": text, "publicText": public, "claimId": claim_id}
+    def emit(self, agent_id, kind, text, claim_id=None, role=None, public="", subject_agent_id=None, reason=None):
+        subject = subject_agent_id or agent_id
+        node = workflow.node_for(kind)
+        previous = self.nodes.get(subject)
+        workflow.guard(previous, node)
+        self.nodes[subject] = node
+        event = {
+            "seq": len(self.trace) + 1,
+            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "agentId": agent_id,
+            "kind": kind,
+            "text": text,
+            "publicText": public,
+            "claimId": claim_id,
+            "nodeId": node,
+            "fromNode": previous,
+            "reason": reason or kind,
+            "subjectAgentId": subject,
+            "attempt": self.attempt,
+        }
         self.trace.append(event)
         if self.on_event:
             self.on_event(event, copy.deepcopy(self.build_partial()) if self.build_partial else None, role or self.role)
@@ -108,7 +128,7 @@ class Session:
         return "\n".join(lines) or "없음"
 
     # 초안 근거 검증 (검증관 이벤트 발행)
-    def check(self, tidy):
+    def check(self, tidy, subject_agent_id):
         checked = [[verify(e["kind"], self.case, e.get("sentenceNo"), e.get("quote"), e.get("keyword")) for e in c["evidence"]] for c in tidy]
         flat = [e for group in checked for e in group]
         bad = _count_bad(flat)
@@ -116,7 +136,7 @@ class Session:
         stat["calls"] += len(flat)
         stat["verified"] = stat.get("verified", 0) + len(flat) - sum(bad.values())
         stat["perjury"] = stat.get("perjury", 0) + bad.get("fabricated", 0)
-        self.emit(CHECKER, "check", f"근거 {len(flat)}건 대조 · 통과 {len(flat) - sum(bad.values())}건" + "".join(f" · {SHORT_STATUS[k]} {v}건" for k, v in bad.items()), role=CHECKER, public="근거 대조")
+        self.emit(CHECKER, "check", f"근거 {len(flat)}건 대조 · 통과 {len(flat) - sum(bad.values())}건" + "".join(f" · {SHORT_STATUS[k]} {v}건" for k, v in bad.items()), role=CHECKER, public="근거 대조", subject_agent_id=subject_agent_id)
         return checked
 
     # 정리된 주장을 검증 결과와 함께 기록 (식별자 부여)
@@ -198,20 +218,23 @@ def _loop(s, agent, role, read_text, plan_system, plan_schema, plan_tidy, tools,
     s.role = role
     s.task_calls = 0
     s.emit(aid, "read", read_text, public="기사 읽기")
+    s.emit(aid, "plan", "계획 작성 시작", public="계획 세우기", reason="start")
     plan = plan_tidy(s.ask(aid, role, "plan", plan_system, plan_schema, optional=True))
     labels = ", ".join(ontology.claim_type(t)["label"] for t in plan["claimTypes"])
     nos = ", ".join(f"{n}번" for n in plan["sentenceNos"])
-    s.emit(aid, "plan", f"{nos or '전체'} 문장 확인 계획" + (f" · 노릴 주장: {labels}" if labels else ""), public=plan_public(plan["sentenceNos"]))
+    s.emit(aid, "plan", f"{nos or '전체'} 문장 확인 계획" + (f" · 노릴 주장: {labels}" if labels else ""), public=plan_public(plan["sentenceNos"]), reason="complete")
     system = draft_system(tools(plan), plan)
+    s.emit(aid, "draft", "초안 작성 시작", public="초안 작성", reason="start")
     raw = s.ask(aid, role, "draft", system, draft_schema(plan))
     tidy = tidy_draft(raw, plan)
-    s.emit(aid, "draft", f"초안 {len(tidy)}건 작성", public="초안 작성")
-    checked = s.check(tidy)
+    s.emit(aid, "draft", f"초안 {len(tidy)}건 작성", public="초안 작성", reason="complete")
+    checked = s.check(tidy, aid)
     first_failed = _failing(checked)
     best = (tidy, checked)
     rewrites = 0
     for number in range(1, MAX_REVISIONS + 1):
-        if not _failing(best[1]) or s.task_calls >= MAX_AGENT_CALLS:
+        branch = workflow.next_nodes("check", failed=bool(_failing(best[1])), can_revise=s.task_calls < MAX_AGENT_CALLS)
+        if branch[0] != "revise":
             break
         s.emit(aid, "revise", f"{_summary(best[1])} → 다시 작성 ({number}/{MAX_REVISIONS})", public="다시 작성")
         revise = agents.build_prompt("agent-revise", round=number, feedback=_feedback(s, tidy, checked), previous=json.dumps(raw, ensure_ascii=False))
@@ -220,7 +243,7 @@ def _loop(s, agent, role, read_text, plan_system, plan_schema, plan_tidy, tools,
             break
         rewrites += 1
         tidy = tidy_draft(raw, plan)
-        checked = s.check(tidy)
+        checked = s.check(tidy, aid)
         if tidy and _failing(checked) <= _failing(best[1]):
             best = (tidy, checked)
     stat = s.stat(aid)
@@ -344,8 +367,9 @@ def work_officer(s, agent, prior):
         s.emit(aid, "tool", "기록 집계 " + line.lstrip("- "), public="기록 집계")
     stances = {e["id"]: e["stance"] for r in prior for c in r["claims"] for e in c["evidence"]}
     system = agents.build_prompt("research-officer", claim_types=ontology.render_catalogue(), record=agents.render_records(prior), judge_notes=s.judge_notes, tool_results="\n".join(lines) or "없음")
+    s.emit(aid, "draft", "보고서 작성 시작", public="보고서 작성", reason="start")
     officer = agents.tidy_officer(s.ask(aid, "officer", "draft", system, agents.officer_schema()), stances)
-    s.emit(aid, "draft", f"보고서 작성 · 쟁점 {len(officer['issues'])}건 · 조치 권고 {officer['recommendedAction']}", public="보고서 작성")
+    s.emit(aid, "draft", f"보고서 작성 · 쟁점 {len(officer['issues'])}건 · 조치 권고 {officer['recommendedAction']}", public="보고서 작성", reason="complete")
     s.stat(aid)["seconds"] = round(time.time() - started, 2)
     s.progress(description, finished=True)
     return officer

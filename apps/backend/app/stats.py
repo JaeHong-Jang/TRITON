@@ -1,7 +1,7 @@
 # 통계실 집계
 from collections import defaultdict
 
-from app import lab, store, summary
+from app import lab, projection, store, summary
 
 STATUSES = ("verified", "misnumbered", "title", "present", "fabricated")
 
@@ -72,6 +72,7 @@ def compute() -> dict:
     all_ledger = store.load_ledger()
     variant_ids = {c["id"] for c in cases if c.get("variantOf")}
     ledger = [e for e in all_ledger if not e.get("labSessionId") and e["caseId"] not in variant_ids]
+    final_case_ids = {e["caseId"] for e in ledger if e["type"] == "final"}
     sessions = store.load_sessions()
     by_case: dict[str, list[dict]] = defaultdict(list)
     for e in ledger:
@@ -93,14 +94,14 @@ def compute() -> dict:
 
     for case in cases:
         cid = case["id"]
-        trials = store.load_trials(cid)
+        trials = store.load_trials(cid) if projection.include_trial_stats(cid) else []
         entries = by_case.get(cid, [])
         answer = answers.get(cid)
         docket[summary.case_summary(case, trials, entries)["docket"]["track"]] += 1
         scr = store.load_screening(cid)
         cat = categories.setdefault(case["category"], {"cases": 0, "pos": 0, "hit": 0})
         cat["cases"] += 1
-        if scr and answer:
+        if scr and answer and cid in final_case_ids:
             screening["total"] += 1
             screening["correct"] += scr["isClickbait"] == answer["isClickbait"]
             if answer["isClickbait"]:
@@ -166,12 +167,16 @@ def compute() -> dict:
 
     flipped = 0
     for v in variants:
+        if not projection.court_open(v["id"]) or not projection.court_open(v["variantOf"]):
+            continue
         own, orig = store.load_screening(v["id"]), store.load_screening(v["variantOf"])
         flipped += bool(own and orig and own["isClickbait"] != orig["isClickbait"])
 
     all_trials, intakes = runs()
+    public_trials = [t for t in all_trials if projection.include_trial_stats(t["caseId"])]
+    public_intakes = [i for i in intakes if projection.include_trial_stats(i["caseId"])]
     return {
-        "cost": cost(all_trials, intakes), "agents": agent_reliability([t for t in all_trials if t["caseId"] not in variant_ids]),
+        "cost": cost(public_trials, public_intakes), "agents": agent_reliability([t for t in public_trials if t["caseId"] not in variant_ids]),
         "cases": len(cases), "finals": finals, "docket": docket, "screening": screening, "judges": judges,
         "appeals": appeals, "overturned": overturned, "checkerOverrides": overrides, "evidenceStatus": evidence_status,
         "byClaimType": by_type,

@@ -5,7 +5,7 @@ import time
 import types
 from pathlib import Path
 
-from conftest import ledger_body, make_trial, scr
+from conftest import appeal_case, first_impression, ledger_body, make_trial, scr
 
 FIRST = {"leaning": "clickbait", "confidence": 70}
 ROLES = ["clerk", "prosecution", "defense", "cross", "officer", "checker"]
@@ -38,25 +38,47 @@ def test_job_events_since_and_partial(env):
     job_id = env.post("/api/cases/c4/trials/1").json()["jobId"]
     done = wait_job(env, job_id)
     assert done["status"] == "done" and done["startedAt"]
-    assert [e["seq"] for e in done["events"]] == [1, 2] and done["partial"]["caseId"] == "c4"
-    assert len(done["partial"]["claims"]) == 1
+    assert done["events"] == [] and done["partial"]["caseId"] == "c4"
+    assert done["done"] == done["total"] == 0 and done["partial"]["trace"] == []
+    assert done["partial"]["claims"] == [] and done["error"] is None
+    first_impression(env, "c4")
+    opened = env.get(f"/api/jobs/{job_id}").json()
+    assert len(opened["partial"]["claims"]) == 1
+    assert [e["seq"] for e in opened["events"]] == [1, 2]
     later = env.get(f"/api/jobs/{job_id}?since=1").json()
     assert [e["seq"] for e in later["events"]] == [2] and later["partial"] is not None
     assert env.get(f"/api/jobs/{job_id}?since=2").json()["events"] == []
-    assert set(done["events"][0]) == {"seq", "at", "agentId", "kind", "text", "claimId"}
+    assert opened["done"] == opened["total"] == 2
+
+
+# 숨긴 작업 오류는 상세 문자열을 내보내지 않음
+def test_hidden_job_error_is_neutral(env):
+    env.calls["fail"] = True
+    job_id = env.post("/api/cases/c4/trials/1").json()["jobId"]
+    done = wait_job(env, job_id)
+    assert done["status"] == "error" and done["error"] == "작업 오류"
+    assert done["events"] == [] and done["step"] == "작업 오류"
 
 
 # 접수 일괄 실행은 파일을 쓰고 서기 권고가 접수 분류를 정한다
 def test_intake_batch_and_docket(env):
     job = wait_job(env, env.post("/api/intake", json={"caseIds": ["c4"]}).json()["jobId"])
-    assert job["status"] == "done" and job["instance"] == 0 and job["total"] == 1 and job["events"][0]["kind"] == "done"
+    assert job["status"] == "done" and job["instance"] == 0 and job["total"] == 0 and job["events"] == []
     assert (env.data / "intake" / "c4.json").exists() and env.calls["intake"] == ["c4"]
     assert env.get("/api/cases?track=trial").json()
     c4 = next(c for c in env.get("/api/cases").json() if c["id"] == "c4")
-    assert c4["docket"]["screening"]["confidence"] == 40 and c4["docket"]["track"] == "trial"
+    assert c4["docket"]["screening"] is None and c4["docket"]["track"] == "trial" and c4["docket"]["reasons"] == []
+    first_impression(env, "c4")
+    opened_job = env.get(f"/api/jobs/{job['id']}").json()
+    assert opened_job["total"] == 1 and opened_job["events"][0]["kind"] == "done"
+    c4_open = next(c for c in env.get("/api/cases").json() if c["id"] == "c4")
+    assert c4_open["docket"]["screening"]["confidence"] == 40 and c4_open["docket"]["track"] == "trial"
     (env.data / "intake" / "c3.json").write_text(json.dumps({"caseId": "c3", "screening": scr(True, 99), "trace": [], "calls": [], "agentStats": {}}), encoding="utf-8")
     c3 = next(c for c in env.get("/api/cases").json() if c["id"] == "c3")
-    assert c3["docket"]["screening"]["confidence"] == 99
+    assert c3["docket"]["screening"] is None
+    first_impression(env, "c3")
+    c3_open = next(c for c in env.get("/api/cases").json() if c["id"] == "c3")
+    assert c3_open["docket"]["screening"]["confidence"] == 99
     wait_job(env, env.post("/api/intake").json()["jobId"])
     assert sorted(env.calls["intake"]) == ["c1", "c2", "c4"]
     assert env.post("/api/intake", json={"caseIds": ["nope"]}).status_code == 404
@@ -72,6 +94,8 @@ def test_policy_persists_and_flips_track(env, monkeypatch):
     (env.data / "intake" / "c3.json").parent.mkdir(exist_ok=True)
     (env.data / "intake" / "c3.json").write_text(json.dumps({"caseId": "c3", "screening": scr(False, 90), "trace": [], "calls": [], "agentStats": {}}), encoding="utf-8")
     track = lambda: next(c for c in env.get("/api/cases").json() if c["id"] == "c3")["docket"]
+    assert track()["track"] == "trial" and track()["screening"] is None
+    first_impression(env, "c3")
     assert track()["track"] == "summary"
     body = {"summaryEnabled": True, "summaryThreshold": 95, "highRiskCategories": ["정치", "경제"]}
     assert env.put("/api/policy", json=body).json() == body
@@ -86,12 +110,13 @@ def test_policy_persists_and_flips_track(env, monkeypatch):
 # 대시보드·작업실·비용 응답 모양과 집계값
 def test_dashboard_agents_and_cost(env):
     write_trial2(env)
-    env.post("/api/ledger", json=ledger_body("c1", "appeal", {"reason": "항소 사유"}))
+    first_impression(env, "c2")
+    appeal_case(env, "c1")
     dash = env.get("/api/dashboard").json()
     assert set(dash) == {"cases", "inTrial", "finals", "activeJobs", "agentsWorking", "kpis", "recent"}
-    assert (dash["cases"], dash["inTrial"], dash["finals"], dash["activeJobs"], dash["agentsWorking"]) == (4, 1, 0, [], 0)
+    assert (dash["cases"], dash["inTrial"], dash["finals"], dash["activeJobs"], dash["agentsWorking"]) == (4, 2, 0, [], 0)
     assert set(dash["kpis"]) == {"screeningAccuracy", "selfCorrectionRate", "escalations", "perjuryRate", "humanOverrides"}
-    assert dash["kpis"]["selfCorrectionRate"] == 0.5 and dash["kpis"]["escalations"] == 1 and dash["kpis"]["screeningAccuracy"] == 0.3333
+    assert dash["kpis"]["selfCorrectionRate"] == 0.5 and dash["kpis"]["escalations"] == 1 and dash["kpis"]["screeningAccuracy"] is None
     assert dash["recent"][0]["kind"] == "ledger" and {i["kind"] for i in dash["recent"]} == {"ledger", "agent"}
     assert [i["text"] for i in dash["recent"] if i["kind"] == "agent"] == ["검사 1 · 과장 주장 에스컬레이션"]
     agents = env.get("/api/agents").json()
@@ -112,15 +137,20 @@ def test_working_and_queued_from_jobs(env, monkeypatch):
     from app import jobs
 
     job = {"id": "j1", "caseId": "c4", "instance": 2, "status": "running", "step": "시작", "done": 0, "total": 8, "error": None, "startedAt": "2026-01-01T00:00:00+00:00",
-           "_kind": "trial", "_case": None, "_prior": [], "_notes": "", "_events": [{"seq": 1, "at": "2026-01-01T00:00:00+00:00", "agentId": "i2-D1", "kind": "tool", "text": "7번 문장 원문 확인", "claimId": None}], "_partial": None, "_role": "cross"}
+           "_kind": "trial", "_case": None, "_prior": [], "_notes": "", "_events": [{"seq": 1, "at": "2026-01-01T00:00:00+00:00", "agentId": "i2-D1", "kind": "submit", "text": "숨은 주장 c4-C1 생성", "publicText": "변론 제출", "claimId": "c4-C1"}], "_partial": None, "_role": "cross"}
     waiting = {**job, "id": "j2", "status": "queued", "instance": 1, "_events": [], "_role": None}
     monkeypatch.setattr(jobs, "JOBS", {"j1": job, "j2": waiting})
     agents = {a["role"]: a for a in env.get("/api/agents").json()}
-    assert agents["cross"]["working"] == {"caseId": "c4", "instance": 2, "text": "7번 문장 원문 확인"}
-    assert agents["prosecution"]["working"] is None and agents["prosecution"]["queued"] == 1 and agents["cross"]["queued"] == 0
+    assert all(a["working"] is None and a["queued"] == 0 for a in agents.values())
     dash = env.get("/api/dashboard").json()
     assert dash["agentsWorking"] == 1 and [j["id"] for j in dash["activeJobs"]] == ["j1", "j2"]
+    assert "숨은 주장" not in json.dumps(dash["recent"], ensure_ascii=False)
+    assert [r["text"] for r in dash["recent"] if r["caseId"] == "c4"] == ["재판 준비 중"]
     assert all("events" not in j and "partial" not in j and not any(k.startswith("_") for k in j) for j in dash["activeJobs"])
+    first_impression(env, "c4")
+    opened = {a["role"]: a for a in env.get("/api/agents").json()}
+    assert opened["cross"]["working"] == {"caseId": "c4", "instance": 2, "text": "숨은 주장 c4-C1 생성"}
+    assert opened["prosecution"]["queued"] == 1 and opened["cross"]["queued"] == 0
 
 
 # 재판 작업은 긴 접수 일괄 작업의 다음 사건 앞에서 먼저 실행된다
@@ -192,7 +222,7 @@ def test_recent_excludes_lab_and_variants_and_dedupes_intake(env):
     doc = {"caseId": "c4", "screening": scr(False, 40), "trace": [event], "calls": [], "agentStats": {}}
     (env.data / "intake").mkdir(exist_ok=True)
     (env.data / "intake" / "c4.json").write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
-    job = {"id": "j1", "caseId": "c4", "instance": 0, "status": "running", "step": "시작", "done": 0, "total": 1, "error": None, "startedAt": None,
+    job = {"id": "j1", "caseId": "c4", "instance": 0, "status": "running", "step": "시작", "done": 0, "total": 1, "error": None, "startedAt": "2026-03-01T00:00:00+00:00",
            "_kind": "intake", "_case": [], "_prior": [], "_notes": "", "_events": [event], "_partial": None, "_role": "clerk"}
     jobs.JOBS["j1"] = job
     try:
@@ -200,4 +230,4 @@ def test_recent_excludes_lab_and_variants_and_dedupes_intake(env):
     finally:
         jobs.JOBS.pop("j1")
     assert [r["caseId"] for r in recent if r["kind"] == "ledger"] == ["c2"]
-    assert [r["text"] for r in recent if r["kind"] == "agent" and r["caseId"] == "c4"] == ["서기 · 접수 검토 완료"]
+    assert [r["text"] for r in recent if r["kind"] == "agent" and r["caseId"] == "c4"] == ["재판 준비 중"]

@@ -1,14 +1,12 @@
 # API 라우트
 import json
-import uuid
-from datetime import datetime, timezone
 from typing import Literal
 
 from court import paths
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, HTTPException, Path, status
 
-from app import console, jobs, lab, ledger, stats, store, summary
-from app.schemas import IntakeIn, LedgerIn, PolicyIn, SessionIn, TrialIn, VariantIn
+from app import console, execution, jobs, lab, ledger, projection, stats, store, summary
+from app.schemas import IntakeIn, LedgerIn, NewCaseIn, PolicyIn, SessionIn, TrialIn, VariantIn
 
 router = APIRouter(prefix="/api")
 
@@ -29,11 +27,7 @@ def _is_final(case_id: str) -> bool:
 # 서버 상태 확인
 @router.get("/health")
 def health() -> dict:
-    try:
-        client = store.court("llm").OllamaClient()
-        return {"ok": True, "ollama": bool(client.available()), "model": client.model}
-    except Exception:
-        return {"ok": True, "ollama": False, "model": ""}
+    return jobs.model_health()
 
 
 # 구현 현황 조회
@@ -61,6 +55,15 @@ def list_cases(track: Literal["summary", "trial"] | None = None, stage: Literal[
     return [r for r in rows if (not track or r["docket"]["track"] == track) and (not stage or r["progress"]["stage"] == stage)]
 
 
+# 직접 기사 등록
+@router.post("/cases", status_code=status.HTTP_201_CREATED)
+def create_case(body: NewCaseIn):
+    try:
+        return store.register_manual_case(str(body.requestId), body.title, body.body, body.category)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
 # 사건 상세 조회
 @router.get("/cases/{case_id}")
 def get_case(case_id: str):
@@ -69,24 +72,37 @@ def get_case(case_id: str):
 
 # 재판 기록 조회
 @router.get("/cases/{case_id}/trials/{n}")
-def get_trial(case_id: str, n: int = Path(ge=1, le=3)):
+def get_trial(case_id: str, labSessionId: str | None = None, n: int = Path(ge=1, le=3)):
     _case_or_404(case_id)
+    try:
+        projection.lab_condition(labSessionId, case_id)
+    except ValueError as e:
+        raise HTTPException(403, str(e))
     record = store.load_trial(case_id, n)
     if not record:
         raise HTTPException(404, "재판 기록이 없습니다")
-    return record
+    return projection.trial(record, case_id, labSessionId)
 
 
 # 재판 생성 시작
 @router.post("/cases/{case_id}/trials/{n}")
 def create_trial(case_id: str, body: TrialIn | None = None, n: int = Path(ge=1, le=3)) -> dict:
     case = _case_or_404(case_id)
+    if _is_final(case_id):
+        raise HTTPException(409, "최종 확정된 사건은 새 심급을 열 수 없습니다")
     if store.load_trial(case_id, n):
         raise HTTPException(409, f"{n}심 기록이 이미 있습니다")
     entries = [e for e in store.load_ledger(case_id) if not e.get("labSessionId")]
     appeals = [e for e in entries if e["type"] == "appeal" and e["instance"] < n]
     if n > 1 and not any(e["instance"] == n - 1 for e in appeals):
         raise HTTPException(409, f"{n - 1}심 항소가 장부에 없어 {n}심을 열 수 없습니다")
+    existing = jobs.latest(case_id, n)
+    if existing:
+        return {"jobId": existing["id"]}
+    try:
+        jobs.require_model()
+    except jobs.ModelUnavailableError as e:
+        raise HTTPException(503, str(e))
     notes = [body.judgeNotes] if body and body.judgeNotes else []
     notes += [f"[{e['instance']}심 항소 사유] {e['data']['reason']}" for e in appeals]
     prior = [t for t in store.load_trials(case_id) if t["instance"] < n]
@@ -99,7 +115,31 @@ def get_job(job_id: str, since: int = 0):
     job = jobs.get(job_id, since)
     if not job:
         raise HTTPException(404, "작업을 찾을 수 없습니다")
-    return job
+    return projection.job(job)
+
+
+# 작업 재시도
+@router.post("/jobs/{job_id}/retry")
+def retry_job(job_id: str):
+    try:
+        return {"jobId": jobs.retry(job_id)}
+    except KeyError:
+        raise HTTPException(404, "작업을 찾을 수 없습니다")
+    except jobs.ModelUnavailableError as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+# 작업 취소
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    try:
+        return projection.job(jobs.cancel(job_id))
+    except KeyError:
+        raise HTTPException(404, "작업을 찾을 수 없습니다")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
 
 
 # 접수 검토(서기) 일괄 실행 시작
@@ -141,8 +181,11 @@ def get_agents():
 
 # 장부 조회
 @router.get("/ledger")
-def get_ledger(caseId: str | None = None):
-    return store.load_ledger(caseId)
+def get_ledger(caseId: str | None = None, labSessionId: str | None = None):
+    entries = store.load_ledger(caseId)
+    if labSessionId:
+        return [e for e in entries if e.get("labSessionId") == labSessionId]
+    return [e for e in entries if not e.get("labSessionId")]
 
 
 # 장부 기록 추가
@@ -150,28 +193,51 @@ def get_ledger(caseId: str | None = None):
 def add_ledger(body: LedgerIn):
     _case_or_404(body.caseId)
     try:
-        ledger.validate(body)
+        entry = ledger.append(body)
     except ValueError as e:
+        if "requestId" in str(e):
+            raise HTTPException(409, str(e))
         raise HTTPException(422, str(e))
-    if body.labSessionId and not lab.get(body.labSessionId):
-        raise HTTPException(422, "실험실 세션을 찾을 수 없습니다")
-    entry = {"id": uuid.uuid4().hex[:12], "at": datetime.now(timezone.utc).isoformat(), **body.model_dump()}
-    store.append_jsonl("ledger/ledger.jsonl", entry)
     return entry
 
 
 # 사건 기록 묶음 조회
 @router.get("/records/{case_id}")
-def get_records(case_id: str):
+def get_records(case_id: str, labSessionId: str | None = None):
     case = _case_or_404(case_id)
+    try:
+        projection.lab_condition(labSessionId, case_id)
+    except ValueError as e:
+        raise HTTPException(403, str(e))
     answer = store.load_answers().get(case_id)
-    final = _is_final(case_id)
+    final = any(e["type"] == "final" and e.get("labSessionId") == labSessionId for e in store.load_ledger(case_id)) if labSessionId else _is_final(case_id)
     return {
         "case": store.public_case(case),
-        "trials": store.load_trials(case_id),
-        "ledger": store.load_ledger(case_id),
+        "trials": projection.trials(store.load_trials(case_id), case_id, labSessionId),
+        "ledger": [e for e in store.load_ledger(case_id) if e.get("labSessionId") == labSessionId],
         "answer": store.public_answer(answer) if final and answer else None,
     }
+
+
+# 실행 그래프 정의 조회
+@router.get("/workflow")
+def get_workflow():
+    try:
+        return store.court("workflow").definition()
+    except ModuleNotFoundError:
+        return execution.definition()
+
+
+# 사건 실행 상태 조회
+@router.get("/cases/{case_id}/execution")
+def get_execution(case_id: str, instance: int = 1, labSessionId: str | None = None):
+    _case_or_404(case_id)
+    if instance not in (1, 2, 3):
+        raise HTTPException(422, "instance는 1, 2, 3 중 하나여야 합니다")
+    try:
+        return execution.view(case_id, instance, labSessionId)
+    except ValueError as e:
+        raise HTTPException(403, str(e))
 
 
 # 정답 조회
