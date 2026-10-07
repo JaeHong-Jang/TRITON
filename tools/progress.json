@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-06",
+  "updatedAt": "2026-10-07",
   "statuses": {
     "todo": "예정",
     "doing": "진행 중",
@@ -37,7 +37,7 @@
           "title": "전체 검증 스크립트 (verify.sh)",
           "owner": "harness",
           "status": "verified",
-          "verify": "./tools/checks/verify.sh"
+          "verify": "./tools/checks/verify.sh (백엔드 291·프론트 151·타입/빌드/하네스, 격리 서버에서 모델 미연결 503·U+2028 등록·무한대 장부 422 실측)"
         }
       ]
     },
@@ -596,6 +596,26 @@
           "owner": "frontend",
           "status": "verified",
           "verify": "docs/exec-plans/completed/2026-10-03-obsidian-graph.md (백엔드 202·프론트 151·타입/빌드/하네스, 실제 319px·모의 390/1440px, 점/라벨 선택·드래그·확대·필터·독립 리뷰)"
+        }
+      ]
+    },
+    {
+      "id": "P17",
+      "title": "백엔드 결함 수정",
+      "features": [
+        {
+          "id": "P17.1",
+          "title": "백엔드 감사 결함 15건 수정 (미완료 실행 판결 차단 · 접수 배치 비공개 누출 · 재시도 순차 재생 · 기록 덮어쓰기 · 장부 500)",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "./tools/checks/verify.sh (백엔드 291·프론트 151·타입/빌드/하네스, 격리 서버에서 모델 미연결 503·U+2028 등록·무한대 장부 422 실측)"
+        },
+        {
+          "id": "P17.2",
+          "title": "정답 비공개·데이터 보호 (문장 이동 변형은 원 사건 확정 뒤에만 · 사건 재생성의 기존 ID 덮어쓰기 거부)",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "./tools/checks/verify.sh --ui (실제 A.X 1→3심 화면 흐름 통과, 백엔드 306·프론트 151·타입/빌드/하네스, 격리 서버에서 미확정 409·확정 통과·데이터 불변, 실험실 화면 차단 사유 표시와 요청 0건 실측)"
         }
       ]
     }
