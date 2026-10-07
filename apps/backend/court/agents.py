@@ -3,6 +3,7 @@ import math
 import re
 
 from court import ontology
+from court.evidence import normalize
 from court.skills import load_skill, render
 
 MAX_CLAIMS = 2
@@ -72,13 +73,14 @@ def _evidence_schema(keywords, kinds=None):
 def claims_schema(types, concession_types, keywords):
     # 주장 한 건 스키마
     def item(allowed):
+        kinds = {kind for type_id in allowed for kind in ontology.claim_type(type_id)["evidence_kinds"]}
         return {
             "type": "object",
             "properties": {
                 "type": {"type": "string", "enum": allowed},
                 "text": {"type": "string"},
                 "strength": {"type": "integer", "minimum": 1, "maximum": 3},
-                "evidence": _evidence_schema(keywords),
+                "evidence": _evidence_schema(keywords, [kind for kind in ("quote", "absence") if kind in kinds and (kind != "absence" or keywords)]),
             },
             "required": ["type", "text", "strength", "evidence"],
         }
@@ -163,13 +165,21 @@ def _is_int(value):
 def tidy_evidence(raw):
     raw = raw if isinstance(raw, list) else []
     tidy = []
+    seen = set()
     for e in raw[:MAX_EVIDENCE]:
         if not isinstance(e, dict):
             continue
         if e.get("kind") == "absence" and str(e.get("keyword") or "").strip():
-            tidy.append({"kind": "absence", "keyword": str(e["keyword"]).strip()})
+            item = {"kind": "absence", "keyword": str(e["keyword"]).strip()}
+            key = ("absence", normalize(item["keyword"]))
         elif e.get("kind") == "quote" and _is_int(e.get("sentenceNo")) and str(e.get("quote") or "").strip():
-            tidy.append({"kind": "quote", "sentenceNo": e["sentenceNo"], "quote": str(e["quote"]).strip()})
+            item = {"kind": "quote", "sentenceNo": e["sentenceNo"], "quote": str(e["quote"]).strip()}
+            key = ("quote", item["sentenceNo"], normalize(item["quote"]))
+        else:
+            continue
+        if key not in seen:
+            seen.add(key)
+            tidy.append(item)
     return tidy
 
 
@@ -226,11 +236,15 @@ def tidy_screening(raw, sentence_nos, keywords):
     claim_type = raw.get("claimType")
     clue = raw.get("offTopicSentenceNo") in sentence_nos or raw.get("absentKeyword") in keywords and raw.get("absentKeyword")
     confidence = min(100, max(0, int(confidence))) if isinstance(confidence, (int, float)) and not isinstance(confidence, bool) else 0
+    is_clickbait = bool(raw.get("isClickbait")) and bool(clue)
+    reason = str(raw.get("reason") or "").strip()
+    if raw.get("isClickbait") and not clue:
+        reason = f"구체적 단서(무관 문장·부재 핵심어)를 찾지 못해 정상으로 보정함. {reason}".strip()
     return {
-        "isClickbait": bool(raw.get("isClickbait")) and bool(clue),
+        "isClickbait": is_clickbait,
         "confidence": confidence if clue else min(confidence, 60),
-        "reason": str(raw.get("reason") or "").strip(),
-        "claimType": claim_type if claim_type in ontology.selectable_types() else None,
+        "reason": reason,
+        "claimType": claim_type if claim_type in ontology.selectable_types("pro" if is_clickbait else "con") else None,
     }
 
 
@@ -273,7 +287,11 @@ def describe_evidence(claim, evidence):
 
 # 상대 근거 목록 문자열
 def render_opponent_evidence(claims):
-    lines = [f"- {describe_evidence(c, e)}" for c in claims for e in c["evidence"]]
+    lines = []
+    for c in claims:
+        label = ontology.claim_type(c["type"])["label"]
+        lines.append(f"주장 {c['id']} ({c['agentId']}, {label}): {c['text']}")
+        lines += [f"  - {describe_evidence(c, e)}" for e in c["evidence"]]
     return "\n".join(lines) or "(없음)"
 
 

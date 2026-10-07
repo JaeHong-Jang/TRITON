@@ -82,11 +82,12 @@ PREDICATE_ENDINGS = ("다", "야", "나", "데", "서", "어", "아", "고", "�
 
 # 제목·부제 명사형 단어 중 본문 모든 문장에 없는 핵심어 후보 추출
 def absence_candidates(case):
-    words = re.findall(r"\w+", f"{case['title']} {case['subtitle']}")
+    headline = re.sub(r"\[[^\]]*\]|【[^】]*】|<[^>]*>", " ", f"{case['title']} {case['subtitle']}")
+    words = re.findall(r"\w+", headline)
     found = []
     for word in words:
         word = _strip_josa(word)
-        if len(word) < 2 or word in found or word.lower() == "null" or word.endswith(PREDICATE_ENDINGS):
+        if len(word) < 2 or word in found or word.lower() == "null" or word.endswith(PREDICATE_ENDINGS) or re.search(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]", word):
             continue
         if not any(_contains(s["text"], word) or _contains(s["text"], word[:2]) for s in case["sentences"]):
             found.append(word)

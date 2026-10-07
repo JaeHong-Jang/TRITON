@@ -20,9 +20,9 @@ def load(case_id):
 
 
 # 서기 한 사건 접수 검토 후 파일 저장
-def run_case(case, client, on_event=None, build_partial=None, should_save=None, save_result=None):
+def run_case(case, client, on_event=None, build_partial=None, should_save=None, save_result=None, attempt=1):
     started = time.time()
-    s = Session(case, 0, client, on_event=on_event)
+    s = Session(case, 0, client, on_event=on_event, attempt=attempt)
     s.build_partial = build_partial
     skill = load_skill("clerk")
     clerk = {"id": "i1-K1", "name": "서기"}

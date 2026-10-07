@@ -90,6 +90,32 @@ def test_first_instance_shape_and_ids():
     assert json.dumps(record, ensure_ascii=False)
 
 
+# 인라인 서기의 전체 이벤트와 통계 및 시도 번호 보존
+def test_inline_clerk_trace_and_stats_are_in_trial_without_calls():
+    events = []
+    record = run(CASE, 1, [], FakeClient(), attempt=2, on_event=lambda event, partial, role: events.append(event))
+    doc = json.loads((paths.DATA_DIR / "intake" / f"{CASE['id']}.json").read_text(encoding="utf-8"))
+    clerk_trace = [event for event in record["trace"] if event["agentId"] == "i1-K1"]
+    assert clerk_trace == doc["trace"]
+    assert record["trace"] == events
+    assert [event["seq"] for event in record["trace"]] == list(range(1, len(events) + 1))
+    assert {event["attempt"] for event in record["trace"]} == {2}
+    assert record["agentStats"]["i1-K1"] == doc["agentStats"]["i1-K1"]
+    assert all(call["role"] != "clerk" for call in record["calls"])
+    assert len(doc["calls"]) == 2
+
+
+# 기존 접수 결과의 이벤트와 통계 중복 복사 방지
+def test_existing_intake_does_not_add_clerk_trace_or_stats():
+    first = run(CASE, 1, [], FakeClient())
+    client = FakeClient()
+    second = run(CASE, 1, [], client, attempt=2)
+    assert first["screening"] == second["screening"]
+    assert "i1-K1" not in second["agentStats"]
+    assert all(event["agentId"] != "i1-K1" for event in second["trace"])
+    assert all("isClickbait" not in schema["properties"] for schema in client.schemas)
+
+
 # 에이전트 프롬프트에는 정답 필드가 없다
 def test_prompts_never_contain_answer_fields():
     client = FakeClient()
@@ -257,7 +283,8 @@ def test_screening_without_clue_is_capped():
     from court import agents
 
     raw = {"offTopicSentenceNo": 0, "absentKeyword": "", "isClickbait": True, "confidence": 95, "reason": "r", "claimType": "title_body_mismatch"}
-    assert agents.tidy_screening(raw, [1, 2], ["하자분쟁"]) == {"isClickbait": False, "confidence": 60, "reason": "r", "claimType": "title_body_mismatch"}
+    capped = agents.tidy_screening(raw, [1, 2], ["하자분쟁"])
+    assert (capped["isClickbait"], capped["confidence"], capped["claimType"]) == (False, 60, None) and "단서" in capped["reason"] and capped["reason"].endswith("r")
     assert agents.tidy_screening({**raw, "absentKeyword": "하자분쟁"}, [1, 2], ["하자분쟁"])["confidence"] == 95
     assert agents.tidy_screening({**raw, "offTopicSentenceNo": 2}, [1, 2], [])["isClickbait"] is True
 

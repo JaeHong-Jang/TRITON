@@ -1,5 +1,6 @@
 # 심급별 재판 진행 (1심·2심·3심)
 import argparse
+import copy
 import json
 from datetime import datetime, timezone
 
@@ -77,7 +78,9 @@ def _first_instance(case, client, notes, on_step, on_event, attempt=1, intake_do
     session.build_partial = lambda: _record(session, bench, screening=intake["screening"] if intake else None)
     if intake is None:
         session.progress("서기 접수 검토")
-        intake = run_case(case, client, on_event, session.build_partial, save_result=save_intake)
+        intake = run_case(case, client, on_event, session.build_partial, save_result=save_intake, attempt=attempt)
+        session.trace.extend(copy.deepcopy(intake["trace"]))
+        session.stats.update(copy.deepcopy(intake["agentStats"]))
     session.skip("서기 접수 결과 사용")
     opening = session.add_round("opening", ROUND_TITLES["opening"])
     for agent in bench[1:]:

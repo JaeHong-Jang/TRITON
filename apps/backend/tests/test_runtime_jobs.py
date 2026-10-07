@@ -108,7 +108,8 @@ def test_retry_reuses_completed_model_response_and_persists_run(monkeypatch):
     trial = json.loads((paths.DATA_DIR / "trials" / CASE["id"] / "1.json").read_text(encoding="utf-8"))
     saved_run = run_store.load(job_id)
     assert job["attempt"] == 2 and job["graphVersion"] == "1"
-    assert trial["execution"] == {"version": "1", "runId": job_id, "attempt": 2}
+    assert {k: trial["execution"][k] for k in ("version", "runId", "attempt")} == {"version": "1", "runId": job_id, "attempt": 2}
+    assert trial["execution"]["modelCalls"]["calls"] == 2
     assert saved_run["status"] == "done" and saved_run["attempt"] == 2
     assert len(external_calls) == 2
     assert run_store.load(job_id)["checkpoints"][0]["input"] == {"system": "same-system", "user": "same-user", "schema": {"type": "object", "properties": {"ok": {"type": "integer"}}}}
@@ -673,3 +674,149 @@ def test_mid_run_version_change_blocks_next_model_call_and_commit(monkeypatch):
     assert external_calls == ["first"]
     assert "버전" in (jobs.get("mid-version")["error"] or "")
     assert not (paths.DATA_DIR / "trials" / CASE["id"] / "1.json").exists()
+
+
+@pytest.mark.parametrize("job_id", ["x" * 300, "x" * 65, "../trial", "invalid.id", "작업", ""])
+# 잘못된 작업 식별자의 파일 접근 차단
+def test_malformed_job_ids_are_missing_and_refuse_save(job_id):
+    assert run_store.load(job_id) is None
+    assert jobs.get(job_id) is None
+    with pytest.raises(KeyError):
+        jobs.retry(job_id)
+    with pytest.raises(KeyError):
+        jobs.cancel(job_id)
+    with pytest.raises(ValueError, match="ID"):
+        run_store.save({"id": job_id})
+
+
+# 긴 작업 식별자의 API 오류 상태
+def test_malformed_job_ids_return_api_404(env):
+    path = "/api/jobs/" + "x" * 300
+    assert env.get(path).status_code == 404
+    assert env.post(path + "/retry").status_code == 404
+    assert env.post(path + "/cancel").status_code == 404
+
+
+@pytest.mark.parametrize("error_type", [ValueError, KeyError, OSError, URLError, TimeoutError])
+# 실패와 성공의 실제 호출 비용 및 재시도 캐시 보존
+def test_model_request_totals_survive_retry(monkeypatch, manual_queue, error_type):
+    clock, invocations = {"seconds": 0.0}, {"model": 0, "run": 0}
+    monkeypatch.setattr(jobs, "time", types.SimpleNamespace(time=time.time, monotonic=lambda: clock["seconds"]))
+
+    # 실패 메타와 실제 경과 시간을 제공하는 모델
+    class Client:
+        model = "fake"
+        options = {}
+
+        # 첫 요청 실패 후 성공 응답
+        def chat_json(self, system, user, schema):
+            invocations["model"] += 1
+            clock["seconds"] += 1.5
+            if invocations["model"] == 1:
+                error = error_type("실패")
+                error.meta = {"promptTokens": 7, "outputTokens": 3}
+                raise error
+            return {"ok": 1}, {"promptTokens": 5, "outputTokens": 2, "seconds": 999}
+
+    # 파싱 오류 복구 뒤에도 첫 실행을 중단하는 재판
+    def run(case, instance, prior, client, **kwargs):
+        invocations["run"] += 1
+        session = Session(case, instance, client)
+        session.ask("i1-P1", "prosecution", "draft", "same", {})
+        if invocations["run"] == 1:
+            raise RuntimeError("시도 중단")
+        return {"claims": [], "calls": session.calls}
+
+    monkeypatch.setattr(jobs.store, "court", lambda name: types.SimpleNamespace(OllamaClient=Client) if name == "llm" else types.SimpleNamespace(run=run))
+    job_id = jobs.enqueue(CASE, 1, [])
+    jobs._run(jobs.JOBS[job_id], 1)
+    assert jobs.get(job_id)["status"] == "error"
+    assert run_store.load(job_id)["modelCallsSnapshot"][CASE["id"]]["trial"]["failed"] == 1
+    jobs.JOBS.clear()
+    jobs.retry(job_id)
+    jobs._run(jobs.JOBS[job_id], 2)
+
+    assert jobs.get(job_id)["status"] == "done"
+    assert invocations["model"] == 2
+    trial = jobs.store.load_trial(CASE["id"], 1)
+    assert trial["execution"]["modelCalls"] == {"calls": 2, "failed": 1, "promptTokens": 12, "outputTokens": 5, "seconds": 3.0}
+
+
+# 접수와 변론 스키마별 고정 응답 모델
+class IntakeClient:
+    model = "fake"
+    options = {}
+
+    # 서기와 양측 변론의 최소 응답
+    def chat_json(self, system, user, schema):
+        props = schema["properties"]
+        if "sentenceNos" in props:
+            reply = {"sentenceNos": [1], "findKeyword": ""}
+        elif "isClickbait" in props:
+            reply = {"offTopicSentenceNo": 0, "absentKeyword": "", "isClickbait": False, "confidence": 50, "reason": "정상", "claimType": "body_consistent"}
+        else:
+            reply = {"claims": [{"type": "body_consistent", "text": "본문 일치", "strength": 1, "evidence": [{"kind": "quote", "sentenceNo": 1, "quote": "합성 문장", "keyword": ""}]}]}
+        return reply, {"promptTokens": 10, "outputTokens": 5, "seconds": 0.01}
+
+
+# 인라인 서기 비용과 변론 비용의 별도 저장
+def test_inline_clerk_cost_is_saved_only_in_intake(monkeypatch, manual_queue):
+    import importlib
+
+    monkeypatch.setattr(jobs.store, "court", lambda name: types.SimpleNamespace(OllamaClient=IntakeClient) if name == "llm" else importlib.import_module(f"court.{name}"))
+    job_id = jobs.enqueue(CASE, 1, [])
+    jobs._run(jobs.JOBS[job_id], 1)
+
+    assert jobs.get(job_id)["status"] == "done"
+    trial = jobs.store.load_trial(CASE["id"], 1)
+    intake = jobs.store.load_intake(CASE["id"])
+    assert intake["modelCalls"]["calls"] == 2
+    assert intake["modelCalls"]["promptTokens"] == 20
+    assert trial["execution"]["modelCalls"]["calls"] == 4
+    assert trial["execution"]["modelCalls"]["promptTokens"] == 40
+    assert all(call["role"] != "clerk" for call in trial["calls"])
+
+
+# 접수 배치의 사건별 비용 귀속과 재시도 번호 저장
+def test_intake_batch_costs_and_trace_use_current_case_and_attempt(monkeypatch, manual_queue):
+    import importlib
+
+    cases = [CASE, {**CASE, "id": "second-case", "title": "두 번째 합성 제목"}]
+    monkeypatch.setattr(jobs.store, "court", lambda name: types.SimpleNamespace(OllamaClient=IntakeClient) if name == "llm" else importlib.import_module(f"court.{name}"))
+    job_id = jobs.enqueue_intake(cases)
+    job = jobs.JOBS[job_id]
+    job["status"] = "interrupted"
+    jobs.retry(job_id)
+    jobs._run(job, 2)
+
+    assert jobs.get(job_id)["status"] == "done"
+    for case in cases:
+        doc = jobs.store.load_intake(case["id"])
+        assert doc["modelCalls"]["calls"] == 2
+        assert doc["modelCalls"]["promptTokens"] == 20
+        assert doc["modelCalls"]["failed"] == 0
+        assert {e["attempt"] for e in doc["trace"]} == {2}
+
+
+@pytest.mark.parametrize("fails", [False, True])
+# 재판 우선 실행 동안 접수 선점 표시와 예외 후 해제
+def test_intake_preemption_is_internal_and_resets(monkeypatch, manual_queue, fails):
+    seen = []
+
+    # 대기 재판 처리 중 접수 작업 상태 확인
+    def waiting_trials():
+        row = next(row for row in jobs.active() if row["id"] == job_id)
+        seen.append((row["status"], row["_preempted"]))
+        assert "_preempted" not in jobs.get(job_id)
+        if fails:
+            raise OSError("재판 실패")
+
+    monkeypatch.setattr(jobs, "_run_waiting_trials", waiting_trials)
+    monkeypatch.setattr(jobs.store, "court", lambda name: types.SimpleNamespace(OllamaClient=lambda: types.SimpleNamespace(model="fake", options={})) if name == "llm" else types.SimpleNamespace(run_case=lambda *args, **kwargs: None))
+    job_id = jobs.enqueue_intake([CASE])
+    job = jobs.JOBS[job_id]
+    jobs._run(job, 1)
+
+    assert seen == [("running", True)]
+    assert job["_preempted"] is False
+    assert jobs.get(job_id)["status"] == ("error" if fails else "done")

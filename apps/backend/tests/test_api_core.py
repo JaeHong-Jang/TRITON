@@ -1,9 +1,10 @@
 # 기본 조회·정답 보호·정적 서빙 API 테스트
+import json
 import sys
 import time
 
 import pytest
-from app import jobs
+from app import jobs, lab, ledger, store
 from conftest import appeal_case, ensure_trial, finalize_case, first_impression, ledger_body, post_ledger, reveal_all
 
 
@@ -279,3 +280,121 @@ def test_intake_requires_model_before_enqueue(env, monkeypatch, payload):
     assert not (env.data / "runs").exists() and not (env.data / "intake").exists()
     assert env.calls.get("intake", []) == []
     assert env.post("/api/intake", json={"caseIds": ["missing"]}).status_code == 404
+
+
+@pytest.mark.parametrize("field,value", [
+    ("summaryThreshold", True), ("summaryThreshold", "85"), ("summaryThreshold", 85.0),
+    ("summaryThreshold", -1), ("summaryThreshold", 101),
+    ("summaryEnabled", 1), ("summaryEnabled", "true"),
+    ("highRiskCategories", "정치"), ("highRiskCategories", [1]), ("highRiskCategories", [True]),
+])
+# 자율 범위 정책의 엄격한 타입과 범위 검증
+def test_policy_rejects_coerced_types_without_saving(env, field, value):
+    body = {"summaryEnabled": True, "summaryThreshold": 85, "highRiskCategories": ["정치"]}
+    before = env.get("/api/policy").json()
+    response = env.put("/api/policy", json={**body, field: value})
+    assert response.status_code == 422 and "요청 형식이 올바르지 않습니다" in response.json()["detail"]
+    assert env.get("/api/policy").json() == before
+    assert not (env.data / "policy.json").exists()
+    assert env.put("/api/policy", json=body).json() == body
+
+
+@pytest.mark.parametrize("url,payload", [
+    ("/api/lab/sessions", {"condition": "A", "judge": "\ud800"}),
+    ("/api/cases/c4/trials/1", {"judgeNotes": "\ud800"}),
+    ("/api/intake", {"caseIds": ["\ud800"]}),
+    ("/api/lab/variants", {"caseId": "\ud800", "attack": "inject_command"}),
+    ("/api/lab/variants", {"caseId": "c1", "attack": "\ud800"}),
+    ("/api/policy", {"summaryEnabled": True, "summaryThreshold": 85, "highRiskCategories": ["\ud800"]}),
+])
+# 요청 스키마 전체의 인코딩 오류 저장 차단
+def test_request_bodies_reject_surrogates_before_saving(env, url, payload):
+    response = env.request("PUT" if url == "/api/policy" else "POST", url, content=json.dumps(payload), headers={"Content-Type": "application/json"})
+    assert response.status_code == 422 and "UTF-8로 저장할 수 없는 문자" in response.json()["detail"]
+    assert not jobs.JOBS and env.calls["run"] == []
+    assert not any((env.data / name).exists() for name in ("lab", "runs", "intake", "policy.json"))
+
+
+@pytest.mark.parametrize("url,target,name,payload", [
+    ("/api/lab/sessions", lab, "create", {"condition": "A", "judge": "판사"}),
+    ("/api/cases", store, "register_manual_case", {"requestId": "11111111-1111-4111-8111-111111111111", "title": "제목", "body": "본문"}),
+    ("/api/ledger", ledger, "append", ledger_body("c1", "first_impression", {"leaning": "clickbait", "confidence": 70})),
+])
+# 전역 인코딩 오류의 한국어 응답
+def test_unicode_encode_error_safety_net(env, monkeypatch, url, target, name, payload):
+    # 저장 계층의 인코딩 실패 재현
+    def fail(*args):
+        "\ud800".encode("utf-8")
+
+    monkeypatch.setattr(target, name, fail)
+    response = env.post(url, json=payload)
+    assert response.status_code == 422 and "UTF-8로 저장할 수 없는 문자" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("method,url,payload,reason", [
+    ("POST", "/api/lab/sessions", {}, "필수 항목"),
+    ("POST", "/api/lab/sessions", {"condition": "A", "judge": 1}, "문자열"),
+    ("POST", "/api/lab/sessions", {"condition": "A", "judge": "판사", "size": "abc"}, "형식"),
+    ("POST", "/api/lab/sessions", {"condition": "D", "judge": "판사"}, "허용된 값"),
+    ("POST", "/api/intake", {"caseIds": {}}, "목록"),
+    ("POST", "/api/ledger", {**ledger_body("c1", "reveal", {"claimId": "i1-C1"}), "data": []}, "객체"),
+    ("GET", "/api/cases/c1/trials/0", None, "최솟값"),
+    ("GET", "/api/cases/c1/trials/4", None, "최댓값"),
+    ("GET", "/api/cases/c1/trials/abc", None, "형식"),
+])
+# 기본 검증 오류의 한국어 사유
+def test_validation_errors_use_korean_reasons(env, method, url, payload, reason):
+    response = env.request(method, url, json=payload)
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail.startswith("요청 형식이 올바르지 않습니다:") and reason in detail
+    assert "Input should" not in detail and "Field required" not in detail
+
+
+@pytest.mark.parametrize("content", [b'{"judge":', b'{"judge":"\xff"}'])
+# JSON 파싱과 본문 인코딩 오류의 한국어 응답
+def test_malformed_body_returns_korean_422(env, content):
+    response = env.post("/api/lab/sessions", content=content, headers={"Content-Type": "application/json"})
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail.startswith("요청 형식이 올바르지 않습니다:")
+    assert "JSON 형식" in detail or "본문 인코딩" in detail
+
+
+@pytest.mark.parametrize("method", ["POST", "PATCH", "HEAD", "OPTIONS"])
+# API 경로와 메서드 기본 오류의 한국어 응답
+def test_api_default_http_errors_are_korean(env, method):
+    unknown = env.request(method, "/api/unknown")
+    assert unknown.status_code == 404
+    if method != "HEAD":
+        assert unknown.json()["detail"] == "찾을 수 없는 API 경로입니다"
+    wrong = env.request(method, "/api/health")
+    assert wrong.status_code == 405 and "GET" in wrong.headers["allow"]
+    if method != "HEAD":
+        assert wrong.json()["detail"] == "허용되지 않는 요청 메서드입니다"
+    assert env.get("/api/cases/missing").json()["detail"] == "사건을 찾을 수 없습니다"
+
+
+@pytest.mark.parametrize("condition", ["A", "B", "C"])
+# 실험실 조회의 상급심 기록 차단
+def test_lab_views_only_expose_first_instance(env, condition):
+    first_impression(env, "c1")
+    ensure_trial(env, "c1", 2)
+    ensure_trial(env, "c1", 3)
+    third = store.load_trial("c1", 3)
+    third["officer"] = {"summary": "상급심 합성 보고서", "issues": [], "reclassified": [], "perjury": [], "recommendedAction": "L0"}
+    store.save_trial("c1", 3, third)
+    session = env.post("/api/lab/sessions", json={"condition": condition, "judge": "판사", "size": 50}).json()
+    assert "c1" in session["caseIds"]
+    query = f"?labSessionId={session['id']}"
+    records = env.get("/api/records/c1" + query)
+    assert records.status_code == 200 and [t["instance"] for t in records.json()["trials"]] == [1]
+    assert "상급심 합성 보고서" not in records.text
+    assert env.get("/api/cases/c1/trials/1" + query).status_code == 200
+    assert env.get("/api/cases/c1/execution" + query).status_code == 200
+    for instance in (2, 3):
+        for url in (f"/api/cases/c1/trials/{instance}{query}", f"/api/cases/c1/execution{query}&instance={instance}"):
+            response = env.get(url)
+            assert response.status_code == 403 and response.json()["detail"] == "실험실은 1심 기록만 볼 수 있습니다"
+        assert env.get(f"/api/cases/c1/trials/{instance}").status_code == 200
+    assert [t["instance"] for t in env.get("/api/records/c1").json()["trials"]] == [1, 2, 3]

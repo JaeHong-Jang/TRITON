@@ -150,3 +150,12 @@ def test_register_article_round_trips_unicode_line_separators(env, separator):
     assert rows.status_code == 200
     assert case["id"] in [row["id"] for row in rows.json()]
     assert env.get(f"/api/cases/{case['id']}").json() == case
+
+
+@pytest.mark.parametrize("field", ["requestId", "title", "body", "category"])
+# 직접 기사 등록의 인코딩 오류 저장 차단
+def test_register_article_rejects_surrogates_before_saving(env, field):
+    payload = {**body(), field: "\ud800"}
+    response = env.post("/api/cases", content=json.dumps(payload), headers={"Content-Type": "application/json"})
+    assert response.status_code == 422 and "UTF-8로 저장할 수 없는 문자" in response.json()["detail"]
+    assert not (env.data / "cases" / "manual.jsonl").exists()

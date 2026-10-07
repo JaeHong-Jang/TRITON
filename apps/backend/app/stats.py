@@ -3,6 +3,7 @@ from collections import defaultdict
 
 from app import lab, projection, store, summary
 from app.ledger import SEATS
+from court.scale import weights
 
 STATUSES = ("verified", "misnumbered", "title", "present", "fabricated")
 
@@ -48,14 +49,21 @@ def runs() -> tuple[list[dict], list[dict]]:
 # 모델 호출 비용 집계 (호출 수·토큰·시간·역할별)
 def cost(trials: list[dict], intakes: list[dict]) -> dict:
     calls = [c for r in [*trials, *intakes] for c in r.get("calls", [])]
+    model_calls = []
+    for r, measured in [(r, r.get("execution", {}).get("modelCalls")) for r in trials] + [(r, r.get("modelCalls")) for r in intakes]:
+        if measured is None:
+            legacy = r.get("calls", [])
+            measured = {"calls": len(legacy), "failed": 0, "promptTokens": sum(c["promptTokens"] for c in legacy), "outputTokens": sum(c["outputTokens"] for c in legacy), "seconds": sum(c["seconds"] for c in legacy)}
+        model_calls.append(measured)
     by_role: dict[str, dict] = {}
     for c in calls:
         row = by_role.setdefault(c["role"], {"role": c["role"], "calls": 0, "seconds": 0.0})
         row["calls"] += 1
         row["seconds"] += c["seconds"]
     return {
-        "calls": len(calls), "promptTokens": sum(c["promptTokens"] for c in calls), "outputTokens": sum(c["outputTokens"] for c in calls),
-        "seconds": round(sum(c["seconds"] for c in calls), 2), "byRole": [{**r, "seconds": round(r["seconds"], 2)} for r in by_role.values()],
+        "calls": sum(c["calls"] for c in model_calls), "failedCalls": sum(c["failed"] for c in model_calls),
+        "promptTokens": sum(c["promptTokens"] for c in model_calls), "outputTokens": sum(c["outputTokens"] for c in model_calls),
+        "seconds": round(sum(c["seconds"] for c in model_calls), 2), "byRole": [{**r, "seconds": round(r["seconds"], 2)} for r in by_role.values()],
     }
 
 
@@ -64,7 +72,7 @@ def agent_reliability(trials: list[dict]) -> dict:
     stats = [s for t in trials for aid, s in t.get("agentStats", {}).items() if aid != "checker"]
     failed = sum(s.get("firstFailed", 0) for s in stats)
     fixed = sum(s.get("fixed", 0) for s in stats)
-    return {"selfCorrectionRate": round(fixed / failed, 4) if failed else None, "escalations": sum(bool(c.get("escalated")) for t in trials for c in t["claims"])}
+    return {"selfCorrectionRate": round(fixed / failed, 4) if failed else None, "escalations": sum(s.get("escalated", 0) for t in trials for s in t.get("agentStats", {}).values())}
 
 
 # 통계 집계
@@ -137,6 +145,7 @@ def compute() -> dict:
 
     appeals = {"i1": 0, "i2": 0}
     overrides = {"admittedVoided": 0, "struckCounted": 0}
+    latest_rulings = {}
     shifts = []
     first_impressions = {}
     for e in ledger:
@@ -145,12 +154,22 @@ def compute() -> dict:
         if e["type"] == "appeal" and e["instance"] in (1, 2):
             appeals[f"i{e['instance']}"] += 1
         elif e["type"] == "evidence_ruling":
-            overrides["admittedVoided"] += d.get("ruling") == "admitted" and d["checkerWeight"] == 0
-            overrides["struckCounted"] += d.get("ruling") == "struck" and d["checkerWeight"] > 0
+            latest_rulings[(e["caseId"], e["instance"], d["evidenceId"])] = d.get("ruling")
         elif e["type"] == "first_impression":
             first_impressions[key] = _score(d["leaning"], d["confidence"])
         elif e["type"] == "seat_verdict" and e["instance"] == 1 and key in first_impressions:
             shifts.append(_score(d["verdict"], d["confidence"]) - first_impressions.pop(key))
+
+    code_weights = {}
+    for (cid, instance, evidence_id), ruling in latest_rulings.items():
+        key = (cid, instance)
+        if key not in code_weights:
+            trial = store.load_trial(cid, instance)
+            code_weights[key] = weights(trial["claims"]) if trial else {}
+        evidence = code_weights[key].get(evidence_id)
+        if evidence is not None:
+            overrides["admittedVoided"] += ruling == "admitted" and evidence[1] == 0
+            overrides["struckCounted"] += ruling == "struck" and evidence[1] > 0
 
     by_type = []
     for type_id, s in sorted(claim_stats.items()):
@@ -185,7 +204,7 @@ def compute() -> dict:
         "confidenceShift": {"mean": round(sum(shifts) / len(shifts), 4) if shifts else None, "n": len(shifts)},
         "seatAgreement": seat_agreement,
         "byCategory": [
-            {"category": k, "cases": v["cases"], "screeningRecall": round(v["hit"] / v["pos"], 4) if v["pos"] else None}
+            {"category": k, "cases": v["cases"], "screeningRecall": round(v["hit"] / v["pos"], 4) if v["pos"] else None, "screeningSample": v["pos"]}
             for k, v in sorted(categories.items())
         ],
         "lab": lab_rows,

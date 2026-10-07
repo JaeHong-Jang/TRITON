@@ -2,25 +2,51 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator, model_validator
+
+
+# 중첩 문자열 인코딩 검사
+def _utf8(value) -> None:
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValueError("UTF-8로 저장할 수 없는 문자가 있습니다")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _utf8(key)
+            _utf8(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _utf8(item)
+
+
+# 요청 문자열 공통 검증
+class RequestIn(BaseModel):
+    # 본문 전체 인코딩 검증
+    @model_validator(mode="before")
+    @classmethod
+    def utf8_text(cls, value):
+        _utf8(value)
+        return value
 
 
 # 판사 정보
-class JudgeIn(BaseModel):
+class JudgeIn(RequestIn):
     seat: int
     name: str
     soloMode: bool = False
 
 
 # 기록 당시 화면 맥락
-class ContextIn(BaseModel):
+class ContextIn(RequestIn):
     balance: dict | None = None
     aiRecommendationShown: bool
     scaleVisible: bool
 
 
 # 장부 기록 요청
-class LedgerIn(BaseModel):
+class LedgerIn(RequestIn):
     caseId: str
     instance: int
     judge: JudgeIn
@@ -30,14 +56,20 @@ class LedgerIn(BaseModel):
     data: dict
     context: ContextIn
 
+    # 빈 실험실 ID 정규화
+    @field_validator("labSessionId")
+    @classmethod
+    def lab_session_id(cls, value: str | None) -> str | None:
+        return value or None
+
 
 # 재판 생성 요청
-class TrialIn(BaseModel):
+class TrialIn(RequestIn):
     judgeNotes: str | None = None
 
 
 # 직접 기사 등록 요청
-class NewCaseIn(BaseModel):
+class NewCaseIn(RequestIn):
     model_config = ConfigDict(extra="forbid")
 
     requestId: UUID
@@ -87,25 +119,25 @@ class NewCaseIn(BaseModel):
 
 
 # 실험실 세션 요청
-class SessionIn(BaseModel):
+class SessionIn(RequestIn):
     condition: Literal["A", "B", "C"]
     judge: str
     size: int = 8
 
 
 # 레드팀 변형 요청
-class VariantIn(BaseModel):
+class VariantIn(RequestIn):
     caseId: str
     attack: Literal["move_inserted", "inject_command"]
 
 
 # 자율 범위 정책 요청
-class PolicyIn(BaseModel):
-    summaryEnabled: bool
-    summaryThreshold: int = Field(ge=0, le=100)
-    highRiskCategories: list[str]
+class PolicyIn(RequestIn):
+    summaryEnabled: bool = Field(strict=True)
+    summaryThreshold: int = Field(strict=True, ge=0, le=100)
+    highRiskCategories: list[StrictStr] = Field(strict=True)
 
 
 # 접수 검토 일괄 실행 요청
-class IntakeIn(BaseModel):
+class IntakeIn(RequestIn):
     caseIds: list[str] | None = None

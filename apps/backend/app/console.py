@@ -25,22 +25,63 @@ def _involves(job: dict, role: str) -> bool:
     return role in INSTANCE_ROLES[job["instance"]]
 
 
+# 에이전트 통계와 작업 순서에 따른 역할별 제출 실패 집계
+def _escalations(record: dict, side: dict, claim_roles: dict) -> dict[str, int]:
+    reads, current, events = {}, {}, {}
+    for e in record.get("trace", []):
+        aid = e["agentId"]
+        role = side.get(aid, "clerk" if aid == "i1-K1" else None)
+        if e["kind"] == "read":
+            key = (aid, e.get("attempt", 1))
+            reads[key] = reads.get(key, 0) + 1
+            # 빈 제출은 2심 동일 에이전트의 두 번째 읽기부터 반대신문 역할
+            current[aid] = "cross" if record["instance"] == 2 and reads[key] > 1 else role
+        if e.get("claimId") in claim_roles:
+            current[aid] = claim_roles[e["claimId"]]
+        if e["kind"] == "escalate":
+            roles = events.setdefault(aid, {})
+            role = current.get(aid, role)
+            roles[role] = roles.get(role, 0) + 1
+    counts = {role: 0 for role, *_ in ROLES}
+    for aid, stat in record.get("agentStats", {}).items():
+        remaining = stat.get("escalated", 0)
+        for role, count in events.get(aid, {}).items():
+            if role in counts:
+                counted = min(remaining, count)
+                counts[role] += counted
+                remaining -= counted
+        role = current.get(aid, side.get(aid, "clerk" if aid == "i1-K1" else None))
+        if role in counts:
+            counts[role] += remaining
+    return counts
+
+
 # 역할별 누적 지표 (재판 기록·접수 결과 기준)
 def _totals(trials: list[dict], intakes: list[dict]) -> dict[str, dict]:
     zero = {"tasks": 0, "claims": 0, "evidence": 0, "verified": 0, "perjury": 0, "revisions": 0, "escalations": 0, "seconds": 0.0}
     totals = {role: dict(zero) for role, *_ in ROLES}
+    variants = {c["id"] for c in store.load_cases() if c.get("variantOf")}
     for r in trials:
         side = {a["id"]: a["side"] for a in r.get("bench", [])}
+        cross_rounds = {round_["index"] for round_ in r.get("rounds", []) if round_["kind"] == "cross"}
+        tasks, claim_roles = {}, {}
         for c in r["claims"]:
-            t = totals.get("cross" if c["rebuts"] else side.get(c["agentId"]))
+            role = "cross" if c["rebuts"] or c["round"] in cross_rounds else side.get(c["agentId"])
+            claim_roles[c["id"]] = role
+            t = totals.get(role)
             if t is None:
                 continue
             t["claims"] += 1
             t["evidence"] += len(c["evidence"])
             t["verified"] += sum(e["status"] == "verified" for e in c["evidence"])
             t["perjury"] += sum(e["status"] == "fabricated" for e in c["evidence"])
-            t["revisions"] += c.get("revisions", 0)
-            t["escalations"] += bool(c.get("escalated"))
+            key = (c["agentId"], c["round"])
+            tasks[key] = (role, max(tasks.get(key, (role, 0))[1], c.get("revisions", 0)))
+        for role, revisions in tasks.values():
+            totals[role]["revisions"] += revisions
+        if r["caseId"] not in variants:
+            for role, escalations in _escalations(r, side, claim_roles).items():
+                totals[role]["escalations"] += escalations
         for call in r["calls"]:
             t = totals[call["role"]]
             t["seconds"] += call["seconds"]
@@ -78,7 +119,7 @@ def agents() -> list[dict]:
     rows = []
     for role, label, room, skill in ROLES:
         meta = store.court("skills").load_skill(skill) if skill else None
-        running = next((j for j in active if j["status"] == "running" and j["_role"] == role), None)
+        running = next((j for j in active if j["status"] == "running" and not j.get("_preempted", False) and j["_role"] == role), None)
         rows.append({
             "role": role, "label": label, "room": room,
             "skill": meta["name"] if meta else None, "skillVersion": meta["version"] if meta else None,
@@ -126,16 +167,19 @@ def dashboard() -> dict:
     stages = [ledger.progress_of(by_case.get(c["id"], []))["stage"] for c in store.load_cases() if not c.get("variantOf")]
     evidence_total = sum(snapshot["evidenceStatus"].values())
     screening = snapshot["screening"]
+    variants = {c["id"] for c in store.load_cases() if c.get("variantOf")}
+    first_failed = sum(s.get("firstFailed", 0) for t in trials if t["caseId"] not in variants for aid, s in t.get("agentStats", {}).items() if aid != "checker")
     return {
         "cases": snapshot["cases"], "inTrial": sum(s in ("in_trial", "appealed") for s in stages), "finals": snapshot["finals"],
         "activeJobs": [{k: v for k, v in projection.job(j).items() if not k.startswith("_") and k not in ("events", "partial")} for j in active],
-        "agentsWorking": sum(j["status"] == "running" for j in active),
+        "agentsWorking": sum(j["status"] == "running" and not j.get("_preempted", False) for j in active),
         "kpis": {
             "screeningAccuracy": round(screening["correct"] / screening["total"], 4) if screening["total"] else None,
             "selfCorrectionRate": snapshot["agents"]["selfCorrectionRate"],
             "escalations": snapshot["agents"]["escalations"],
             "perjuryRate": round(snapshot["evidenceStatus"]["fabricated"] / evidence_total, 4) if evidence_total else None,
             "humanOverrides": snapshot["checkerOverrides"]["admittedVoided"] + snapshot["checkerOverrides"]["struckCounted"],
+            "samples": {"screening": screening["total"], "selfCorrection": first_failed, "perjury": evidence_total},
         },
         "recent": _recent(trials, intakes, active),
     }

@@ -5,10 +5,97 @@ import time
 import types
 from pathlib import Path
 
-from conftest import appeal_case, first_impression, ledger_body, make_trial, scr
+from app import console, stats, store
+from conftest import appeal_case, final_data, first_impression, ledger_body, make_trial, scr
 
 FIRST = {"leaning": "clickbait", "confidence": 70}
 ROLES = ["clerk", "prosecution", "defense", "cross", "officer", "checker"]
+
+
+# 같은 작업의 여러 주장과 다른 라운드의 독립 수정 횟수
+def test_role_revisions_count_once_per_task(env):
+    trial = make_trial("c2", 2, None)
+    first = trial["claims"][0]
+    first.update(agentId="i2-D1", revisions=2)
+    trial["bench"] = [{**trial["bench"][0], "id": "i2-D1", "side": "defense"}]
+    trial["rounds"] = [{"index": 0, "kind": "opening"}, {"index": 1, "kind": "cross"}]
+    trial["claims"] = [first, {**first, "id": "second"}, {**first, "id": "cross", "round": 1, "rebuts": "target", "revisions": 1}]
+    totals = console._totals([trial], [])
+    assert totals["defense"]["claims"] == 2 and totals["defense"]["revisions"] == 2
+    assert totals["cross"]["claims"] == 1 and totals["cross"]["revisions"] == 1
+
+
+# 빈 모두 변론과 반대신문의 에이전트별 판사 이관 역할
+def test_role_escalations_include_empty_opening_and_cross(env):
+    trial = make_trial("c2", 2, None)
+    trial["claims"] = []
+    trial["bench"] = [{"id": "i2-P1", "side": "prosecution"}, {"id": "i2-D1", "side": "defense"}]
+    trial["trace"] = [{"agentId": aid, "kind": kind, "claimId": None} for aid in ("i2-P1", "i2-D1", "i2-P1", "i2-D1") for kind in ("read", "escalate")]
+    trial["agentStats"] = {aid: {"escalated": 2} for aid in ("i2-P1", "i2-D1")}
+    totals = console._totals([trial], [])
+    assert {role: totals[role]["escalations"] for role in ("prosecution", "defense", "cross")} == {"prosecution": 1, "defense": 1, "cross": 2}
+    assert sum(t["escalations"] for t in totals.values()) == stats.agent_reliability([trial])["escalations"] == 4
+    store.append_jsonl("cases/cases.jsonl", {**store.get_case("c2"), "id": "variant", "variantOf": "c2"})
+    variant = {**trial, "caseId": "variant"}
+    assert sum(t["escalations"] for t in console._totals([trial, variant], []).values()) == 4
+
+
+# 비율별 실제 분모와 분야별 낚시성 재현율 표본
+def test_metric_samples_match_rate_denominators(env):
+    for cid in ("c1", "c2", "c3", "c4"):
+        trial = store.load_trial(cid, 1) or make_trial(cid, 1, scr(False, 50))
+        trial["agentStats"] = {"i1-P1": {"firstFailed": 3, "fixed": 2}} if cid == "c1" else {}
+        store.write_json(f"trials/{cid}/1.json", trial)
+        store.append_jsonl("ledger/ledger.jsonl", {"id": f"first-{cid}", "at": "2026-01-01T00:00:00Z", **ledger_body(cid, "first_impression", FIRST)})
+        store.append_jsonl("ledger/ledger.jsonl", {"id": f"final-{cid}", "at": "2026-01-01T00:00:01Z", **ledger_body(cid, "final", final_data("clickbait"))})
+    answers = store.load_answers()
+    (env.data / "answers" / "answers.jsonl").write_text("\n".join(json.dumps(a) for cid, a in answers.items() if cid != "c4") + "\n", encoding="utf-8")
+    snapshot, kpis = stats.compute(), console.dashboard()["kpis"]
+    assert kpis["samples"] == {"screening": 3, "selfCorrection": 3, "perjury": 5}
+    assert kpis["screeningAccuracy"] == 0.3333 and kpis["selfCorrectionRate"] == 0.6667 and kpis["perjuryRate"] == 0.2
+    assert {r["category"]: (r["screeningRecall"], r["screeningSample"]) for r in snapshot["byCategory"]} == {"IT": (None, 0), "경제": (0.0, 1), "정치": (1.0, 1)}
+
+
+# 실패와 이전 시도를 포함한 모델 비용 및 옛 기록 대체 경로
+def test_cost_uses_model_calls_with_legacy_fallback(env):
+    measured = make_trial("c1", 1, scr(True, 90))
+    measured["calls"] = [{"role": "prosecution", "promptTokens": 1, "outputTokens": 1, "seconds": 1.0}]
+    measured["execution"] = {"modelCalls": {"calls": 5, "failed": 2, "promptTokens": 1000, "outputTokens": 200, "seconds": 10.0}}
+    legacy = make_trial("c2", 1, scr(False, 60))
+    legacy["calls"] = [{"role": "defense", "promptTokens": 10, "outputTokens": 2, "seconds": 1.5}] * 2
+    for trial in (measured, legacy):
+        store.write_json(f"trials/{trial['caseId']}/1.json", trial)
+    store.write_json("intake/c1.json", {"caseId": "c1", "screening": scr(True, 90), "calls": [{"role": "clerk", "promptTokens": 1, "outputTokens": 1, "seconds": 2.0}], "modelCalls": {"calls": 3, "failed": 1, "promptTokens": 500, "outputTokens": 100, "seconds": 4.0}})
+    store.write_json("intake/c3.json", {"caseId": "c3", "screening": scr(False, 60), "calls": [{"role": "clerk", "promptTokens": 30, "outputTokens": 5, "seconds": 2.0}]})
+    store.write_json("trials/c4/1.json", {**measured, "caseId": "c4"})
+    for cid in ("c1", "c2", "c3"):
+        store.append_jsonl("ledger/ledger.jsonl", {"id": cid, "at": "2026-01-01T00:00:00Z", **ledger_body(cid, "first_impression", FIRST)})
+    assert stats.compute()["cost"] == {"calls": 11, "failedCalls": 3, "promptTokens": 1550, "outputTokens": 309, "seconds": 19.0, "byRole": [{"role": "prosecution", "calls": 1, "seconds": 1.0}, {"role": "defense", "calls": 2, "seconds": 3.0}, {"role": "clerk", "calls": 2, "seconds": 4.0}]}
+
+
+# 실제 호출이 없는 캐시 재생 기록의 비용 제외
+def test_cost_zero_model_calls_do_not_fall_back_to_cached_calls(env):
+    trial = make_trial("c1", 1, None)
+    trial["calls"] = [{"role": "prosecution", "promptTokens": 10, "outputTokens": 2, "seconds": 1.0}]
+    trial["execution"] = {"modelCalls": {"calls": 0, "failed": 0, "promptTokens": 0, "outputTokens": 0, "seconds": 0}}
+    cost = stats.cost([trial], [])
+    assert (cost["calls"], cost["failedCalls"], cost["promptTokens"], cost["outputTokens"], cost["seconds"]) == (0, 0, 0, 0, 0)
+    assert cost["byRole"] == [{"role": "prosecution", "calls": 1, "seconds": 1.0}]
+
+
+# 재판 우선 실행에 선점된 접수는 작업 중 지표에서 제외
+def test_preempted_intake_is_not_working(env, monkeypatch):
+    store.append_jsonl("ledger/ledger.jsonl", {"id": "first", "at": "2026-01-01T00:00:00Z", **ledger_body("c1", "first_impression", FIRST)})
+    job = {"id": "intake", "caseId": "c1", "instance": 0, "status": "running", "step": "접수 검토", "done": 1, "total": 2, "error": None, "startedAt": "2026-01-01T00:00:00Z", "_kind": "intake", "_role": "clerk", "_recent": [], "_preempted": True}
+    trial = {**job, "id": "trial", "instance": 1, "_kind": "trial", "_role": "prosecution"}
+    trial.pop("_preempted")
+    monkeypatch.setattr(console.jobs, "active", lambda: [job, trial])
+    assert console.dashboard()["agentsWorking"] == 1
+    profiles = {a["role"]: a for a in console.agents()}
+    assert profiles["clerk"]["working"] is None and profiles["prosecution"]["working"]["caseId"] == "c1"
+    job["_preempted"] = False
+    assert console.dashboard()["agentsWorking"] == 2
+    assert next(a for a in console.agents() if a["role"] == "clerk")["working"]["caseId"] == "c1"
 
 
 # 작업이 끝날 때까지 기다린 마지막 상태
@@ -115,7 +202,7 @@ def test_dashboard_agents_and_cost(env):
     dash = env.get("/api/dashboard").json()
     assert set(dash) == {"cases", "inTrial", "finals", "activeJobs", "agentsWorking", "kpis", "recent"}
     assert (dash["cases"], dash["inTrial"], dash["finals"], dash["activeJobs"], dash["agentsWorking"]) == (4, 2, 0, [], 0)
-    assert set(dash["kpis"]) == {"screeningAccuracy", "selfCorrectionRate", "escalations", "perjuryRate", "humanOverrides"}
+    assert set(dash["kpis"]) == {"screeningAccuracy", "selfCorrectionRate", "escalations", "perjuryRate", "humanOverrides", "samples"}
     assert dash["kpis"]["selfCorrectionRate"] == 0.5 and dash["kpis"]["escalations"] == 1 and dash["kpis"]["screeningAccuracy"] is None
     assert dash["recent"][0]["kind"] == "ledger" and {i["kind"] for i in dash["recent"]} == {"ledger", "agent"}
     assert [i["text"] for i in dash["recent"] if i["kind"] == "agent"] == ["검사 1 · 과장 주장 에스컬레이션"]
@@ -128,7 +215,7 @@ def test_dashboard_agents_and_cost(env):
     assert by_role["cross"]["totals"]["tasks"] == 1 and by_role["cross"]["totals"]["seconds"] == 1.0
     assert by_role["checker"]["totals"]["evidence"] == 4 and by_role["checker"]["totals"]["perjury"] == 1 and by_role["checker"]["totals"]["tasks"] == 1
     stats = env.get("/api/stats").json()
-    assert stats["cost"] == {"calls": 3, "promptTokens": 450, "outputTokens": 110, "seconds": 8.0, "byRole": [{"role": "prosecution", "calls": 2, "seconds": 7.0}, {"role": "cross", "calls": 1, "seconds": 1.0}]}
+    assert stats["cost"] == {"calls": 3, "failedCalls": 0, "promptTokens": 450, "outputTokens": 110, "seconds": 8.0, "byRole": [{"role": "prosecution", "calls": 2, "seconds": 7.0}, {"role": "cross", "calls": 1, "seconds": 1.0}]}
     assert stats["agents"] == {"selfCorrectionRate": 0.5, "escalations": 1}
 
 

@@ -1,5 +1,6 @@
 # 실행 스냅샷 저장소
 import copy
+import re
 from datetime import datetime, timezone
 
 from app import store
@@ -22,6 +23,8 @@ def public(run: dict) -> dict:
 
 # 실행 저장
 def save(run: dict) -> None:
+    if not isinstance(run["id"], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", run["id"]):
+        raise ValueError("작업 ID 형식이 올바르지 않습니다")
     run.setdefault("createdAt", now())
     run["updatedAt"] = now()
     store.write_json(_rel(run["id"]), run)
@@ -29,6 +32,8 @@ def save(run: dict) -> None:
 
 # 실행 읽기
 def load(run_id: str) -> dict | None:
+    if not isinstance(run_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", run_id):
+        return None
     return store.read_json(_rel(run_id), None)
 
 

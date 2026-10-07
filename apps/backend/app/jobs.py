@@ -90,6 +90,7 @@ def _snapshot(job: dict) -> dict:
         "intakeSnapshot": copy.deepcopy(job.get("_intake")),
         "policySnapshot": copy.deepcopy(job.get("_policy")),
         "modelSnapshot": copy.deepcopy(job.get("_model")),
+        "modelCallsSnapshot": copy.deepcopy(job.get("_model_calls", {})),
         "versionSnapshot": copy.deepcopy(job.get("_versions", {})),
         "kind": job.get("_kind"),
         "role": job.get("_role"),
@@ -153,7 +154,13 @@ def _job_from_run(run: dict) -> dict:
         "updatedAt": run.get("updatedAt"), "attempt": run.get("attempt", 1), "graphVersion": run.get("graphVersion", workflow.VERSION),
         "_kind": run.get("kind", "trial"), "_case": case, "_cases": cases, "_intake": copy.deepcopy(run.get("intakeSnapshot")), "_prior": prior, "_notes": run.get("notes", ""), "_events": run.get("events", []), "_partial": run.get("partial"),
         "_role": run.get("role"), "_checkpoints": run.get("checkpoints", []), "_policy": run.get("policySnapshot"), "_model": run.get("modelSnapshot"), "_versions": run.get("versionSnapshot", {}),
+        "_model_calls": copy.deepcopy(run.get("modelCallsSnapshot", {})),
     }
+
+
+# 사건과 처리 종류별 실제 모델 요청 누계
+def _model_totals(job: dict, case_id: str, kind: str) -> dict:
+    return copy.deepcopy(job.get("_model_calls", {}).get(case_id, {}).get(kind, {"calls": 0, "failed": 0, "promptTokens": 0, "outputTokens": 0, "seconds": 0.0}))
 
 
 # 저장 응답 캐시를 쓰는 모델 클라이언트
@@ -176,12 +183,30 @@ class CachedClient:
             self.requests[key] = index + 1
             checkpoints = [c for c in self.job["_checkpoints"] if c["key"] == key and c["status"] in ("complete", "invalid")]
             cached = checkpoints[index] if index < len(checkpoints) else None
+            case_id = self.job["caseId"]
+            kind = "intake" if self.job["_kind"] == "intake" or self.job.get("_role") == "clerk" else "trial"
         if cached:
             if cached["status"] == "invalid":
                 raise ValueError(cached.get("error", "저장된 모델 응답을 해석하지 못했습니다"))
             return copy.deepcopy(cached["reply"]), {**copy.deepcopy(cached["meta"]), "cached": True}
+        requested_at = time.monotonic()
+        meta, failed = {}, False
         try:
-            reply, meta = self.inner.chat_json(system, user, schema)
+            try:
+                reply, meta = self.inner.chat_json(system, user, schema)
+            except Exception as e:
+                meta, failed = getattr(e, "meta", {}) or {}, True
+                raise
+            finally:
+                seconds = time.monotonic() - requested_at
+                with STATE_LOCK:
+                    totals = _model_totals(self.job, case_id, kind)
+                    totals["calls"] += 1
+                    totals["failed"] += int(failed)
+                    totals["promptTokens"] += meta.get("promptTokens", 0) or 0
+                    totals["outputTokens"] += meta.get("outputTokens", 0) or 0
+                    totals["seconds"] += seconds
+                    self.job.setdefault("_model_calls", {}).setdefault(case_id, {})[kind] = totals
         except (ValueError, KeyError) as e:
             with STATE_LOCK:
                 _ensure_live(self.job, self.attempt, self.started)
@@ -225,7 +250,7 @@ def latest(case_id: str, instance: int) -> dict | None:
 def active() -> list[dict]:
     with STATE_LOCK:
         return [
-            {**_public(j), "_kind": j["_kind"], "_role": j["_role"], "_recent": list(j["_events"][-10:]), "_text": j["_events"][-1]["text"] if j["_events"] else j["step"]}
+            {**_public(j), "_kind": j["_kind"], "_role": j["_role"], "_preempted": j.get("_preempted", False), "_recent": list(j["_events"][-10:]), "_text": j["_events"][-1]["text"] if j["_events"] else j["step"]}
             for j in JOBS.values() if j["status"] in ("queued", "running")
         ]
 
@@ -267,6 +292,7 @@ def _save_intake_callback(job: dict, attempt: int, started: float):
     def save(doc: dict) -> None:
         with STATE_LOCK:
             _ensure_live(job, attempt, started)
+            doc["modelCalls"] = _model_totals(job, doc["caseId"], "intake")
             job["_intake"] = copy.deepcopy(doc)
             store.write_json(f"intake/{doc['caseId']}.json", doc)
             _save(job)
@@ -317,7 +343,7 @@ def _run(job: dict, queued_attempt: int) -> None:
             record = run_trial(job["_case"], job["instance"], job["_prior"], client, **kwargs)
             record["caseId"] = job["caseId"]
             record["instance"] = job["instance"]
-            record["execution"] = {"version": workflow.VERSION, "runId": job["id"], "attempt": attempt}
+            record["execution"] = {"version": workflow.VERSION, "runId": job["id"], "attempt": attempt, "modelCalls": _model_totals(job, job["caseId"], "trial")}
             with STATE_LOCK:
                 _ensure_live(job, attempt, started)
                 _ensure_versions(job)
@@ -341,7 +367,13 @@ def _run_intake(job: dict, client, on_event, attempt: int, started: float) -> No
     cases = job["_cases"]
     _update_live(job, attempt, started, total=len(cases))
     for i, case in enumerate(cases):
-        _run_waiting_trials()
+        with STATE_LOCK:
+            job["_preempted"] = True
+        try:
+            _run_waiting_trials()
+        finally:
+            with STATE_LOCK:
+                job["_preempted"] = False
         _update_live(job, attempt, started, caseId=case["id"], step=f"{case['id']} 접수 검토", done=i)
         run_case = store.court("intake").run_case
 
@@ -349,6 +381,7 @@ def _run_intake(job: dict, client, on_event, attempt: int, started: float) -> No
         def save_result(doc: dict) -> None:
             with STATE_LOCK:
                 _ensure_live(job, attempt, started)
+                doc["modelCalls"] = _model_totals(job, doc["caseId"], "intake")
                 store.write_json(f"intake/{doc['caseId']}.json", doc)
                 _save(job)
 
@@ -357,6 +390,8 @@ def _run_intake(job: dict, client, on_event, attempt: int, started: float) -> No
             on_event({**event, "caseId": case_id}, partial, role)
 
         kwargs = {"on_event": case_event}
+        if "attempt" in inspect.signature(run_case).parameters:
+            kwargs["attempt"] = attempt
         if "save_result" in inspect.signature(run_case).parameters:
             kwargs["save_result"] = save_result
         elif "should_save" in inspect.signature(run_case).parameters:

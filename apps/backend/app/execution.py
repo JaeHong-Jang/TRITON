@@ -161,7 +161,7 @@ def view(case_id: str, instance: int, lab_session_id: str | None = None) -> dict
     reason = next(s["reason"] for s in steps if s["id"] == phase)
     if legacy:
         reason = f"실행 그래프 기록 없음 · {reason}"
-    if visible and complete and not claims:
+    if visible and complete and not claims and phase in ("reveal", "review", "seat_verdict"):
         reason = "유효한 주장 없음 · 판사가 기록을 검토해야 합니다"
     return {"version": workflow.VERSION, "caseId": case_id, "instance": instance, "mode": mode, "disclosure": "open" if visible else "hidden", "phase": phase, "reason": reason,
             "steps": steps, "edges": [e for e in EDGES if instance < 3 or e["from"] != "appeal" and e["to"] != "appeal"], "agents": _agents(record, run, visible), "run": run, "limits": workflow.definition()["limits"], "controls": controls, "availableInstances": available_instances}

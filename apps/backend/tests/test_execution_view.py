@@ -107,3 +107,23 @@ def test_execution_two_seats_and_appeal(env, monkeypatch):
     view = execution.view("c4", 2)
     assert view["phase"] == "appeal"
     assert next(s for s in view["steps"] if s["id"] == "final")["status"] == "blocked"
+
+
+@pytest.mark.parametrize("terminal", [None, "appeal", "final"])
+# 빈 주장 검토 안내의 판결 전 단계 제한
+def test_empty_claim_reason_preserves_appeal_and_final(env, monkeypatch, terminal):
+    record = make_trial("c4", 1, scr(False, 50))
+    record["claims"] = []
+    record["execution"] = {"runId": "empty", "version": "1", "attempt": 1}
+    store.save_trial("c4", 1, record)
+    entries = [{"type": "first_impression", "instance": 1, "labSessionId": None, "data": {}}]
+    if terminal:
+        entries.extend([
+            {"type": "seat_verdict", "instance": 1, "labSessionId": None, "judge": {"seat": 1}, "data": {"verdict": "not_clickbait"}},
+            {"type": terminal, "instance": 1, "labSessionId": None, "data": {}},
+        ])
+    monkeypatch.setattr(store, "load_ledger", lambda *args: entries)
+    monkeypatch.setattr(jobs, "latest", lambda *args: None)
+    view = execution.view("c4", 1)
+    assert view["phase"] == (terminal or "seat_verdict")
+    assert view["reason"] == {None: "유효한 주장 없음 · 판사가 기록을 검토해야 합니다", "appeal": "이전 기록을 보존하고 다음 심급을 준비합니다", "final": "최종 판결 기록 완료"}[terminal]

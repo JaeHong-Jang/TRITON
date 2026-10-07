@@ -159,7 +159,7 @@ def test_semantic_dedupe_without_same_request_id(env):
     second = env.post("/api/ledger", json=body)
     assert first.status_code == second.status_code == 200 and first.json()["id"] == second.json()["id"]
     changed = {**body, "data": {"leaning": "not_clickbait", "confidence": 70}, "requestId": "lost-3"}
-    assert env.post("/api/ledger", json=changed).status_code == 422
+    assert env.post("/api/ledger", json=changed).status_code == 409
 
 
 # evidence ruling은 최신과 같을 때만 재전송 반환
@@ -260,3 +260,92 @@ def test_ledger_rejects_nonfinite_numbers(env, field, number):
     assert env.get("/api/ledger").json() == before
     assert env.get("/api/stats").status_code == 200
     assert env.get("/api/dashboard").status_code == 200
+
+
+@pytest.mark.parametrize("field", ["confidence", "checkerWeight", "pro", "con", "tilt"])
+@pytest.mark.parametrize("existing", [False, True])
+# 매우 큰 정수 장부 값의 저장 차단
+def test_ledger_rejects_overflowing_integers(env, field, existing):
+    body = ledger_body("c1", "first_impression", {"leaning": "clickbait", "confidence": 70})
+    if field == "checkerWeight":
+        first_impression(env, "c1")
+        reveal_all(env, "c1")
+        body = ledger_body("c1", "evidence_ruling", {"evidenceId": "i1-E1", "ruling": "struck", "checkerWeight": 0})
+    elif field != "confidence":
+        body["context"]["balance"] = {"pro": 0, "con": 0, "tilt": 0}
+    if existing:
+        assert env.post("/api/ledger", json=body).status_code == 200
+    if field in ("confidence", "checkerWeight"):
+        body["data"][field] = 10 ** 400
+    else:
+        body["context"]["balance"][field] = 10 ** 400
+    before = env.get("/api/ledger").json()
+    response = env.post("/api/ledger", json=body)
+    assert response.status_code == 422 and "숫자" in response.json()["detail"]
+    assert env.get("/api/ledger").json() == before
+
+
+@pytest.mark.parametrize("instance,seat", [(1, 2), (1, 3), (2, 3)])
+@pytest.mark.parametrize("type_,data", [
+    ("first_impression", {"leaning": "clickbait", "confidence": 70}),
+    ("reveal", {"claimId": "i1-C1"}),
+    ("evidence_ruling", {"evidenceId": "i1-E1", "ruling": "struck", "checkerWeight": 0}),
+    ("seat_verdict", {"verdict": "clickbait", "confidence": 70, "reason": REASON}),
+    ("appeal", {"reason": REASON}),
+    ("final", {"verdict": "clickbait", "action": "L3", "reason": REASON, "votes": [{"seat": 1, "verdict": "clickbait"}]}),
+])
+# 모든 장부 유형의 심급별 판사석 검증
+def test_ledger_rejects_seats_outside_instance(env, instance, seat, type_, data):
+    response = env.post("/api/ledger", json=ledger_body("c1", type_, data, instance=instance, seat=seat))
+    assert response.status_code == 422 and f"{instance}심 판사석" in response.json()["detail"]
+    assert env.get("/api/ledger").json() == []
+
+
+# 빈 실험실 ID의 일반 법정 정규화
+def test_empty_lab_session_id_matches_null(env):
+    body = ledger_body("c1", "first_impression", {"leaning": "clickbait", "confidence": 70}, session="")
+    first = env.post("/api/ledger", json=body)
+    assert first.status_code == 200 and first.json()["labSessionId"] is None
+    body.pop("labSessionId")
+    again = env.post("/api/ledger", json=body)
+    assert again.status_code == 200 and again.json()["id"] == first.json()["id"]
+    for url in ("/api/ledger?caseId=c1", "/api/records/c1", "/api/cases/c1/trials/1", "/api/cases/c1/execution"):
+        blank = env.get(url + ("&" if "?" in url else "?") + "labSessionId=")
+        normal = env.get(url)
+        assert blank.status_code == normal.status_code == 200 and blank.json() == normal.json()
+    assert env.get("/api/records/c1").json()["ledger"] == [first.json()]
+
+
+@pytest.mark.parametrize("type_", ["first_impression", "seat_verdict", "appeal", "final"])
+# 장부 위치 충돌의 상태 코드와 기록 보존
+def test_ledger_slot_conflicts_return_409(env, type_):
+    if type_ == "appeal":
+        appeal_case(env, "c1")
+    else:
+        finalize_case(env, "c1", "clickbait")
+    before = env.get("/api/ledger").json()
+    saved = next(e for e in before if e["type"] == type_)
+    body = {k: v for k, v in saved.items() if k not in ("id", "at")}
+    body["data"] = {**body["data"], **({"confidence": 71} if type_ == "first_impression" else {"reason": REASON + " 변경"})}
+    response = env.post("/api/ledger", json=body)
+    assert response.status_code == 409 and response.json()["detail"] == "이미 다른 내용으로 기록된 장부 항목입니다"
+    assert env.get("/api/ledger").json() == before
+
+
+@pytest.mark.parametrize("field", ["caseId", "labSessionId", "requestId", "type", "judge", "data", "data_key", "context"])
+# 중첩 장부 문자열의 인코딩 오류 저장 차단
+def test_ledger_rejects_surrogates_before_saving(env, field):
+    body = ledger_body("c1", "first_impression", {"leaning": "clickbait", "confidence": 70})
+    if field == "judge":
+        body["judge"]["name"] = "\ud800"
+    elif field == "data":
+        body["data"]["nested"] = [{"text": "\ud800"}]
+    elif field == "data_key":
+        body["data"]["\ud800"] = "값"
+    elif field == "context":
+        body["context"]["balance"] = {"pro": 0, "con": 0, "tilt": 0, "nested": ["\ud800"]}
+    else:
+        body[field] = "\ud800"
+    response = env.post("/api/ledger", content=json.dumps(body), headers={"Content-Type": "application/json"})
+    assert response.status_code == 422 and "UTF-8로 저장할 수 없는 문자" in response.json()["detail"]
+    assert not (env.data / "ledger" / "ledger.jsonl").exists()

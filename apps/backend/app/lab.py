@@ -25,20 +25,10 @@ def get(session_id: str) -> dict | None:
 
 
 # 세션 사건 표본 추출
-def _pick(size: int, rng: random.Random) -> list[str]:
+def _pick(size: int) -> list[str]:
     answers = store.load_answers()
     ids = [c["id"] for c in store.load_cases() if not c.get("variantOf") and answers.get(c["id"]) and store.load_trial(c["id"], 1)]
-    pos = [i for i in ids if answers.get(i, {}).get("isClickbait")]
-    neg = [i for i in ids if i not in pos]
-    rng.shuffle(pos)
-    rng.shuffle(neg)
-    picked = []
-    while len(picked) < size and (pos or neg):
-        for pool in (pos, neg):
-            if pool and len(picked) < size:
-                picked.append(pool.pop())
-    rng.shuffle(picked)
-    return picked
+    return random.SystemRandom().sample(ids, min(size, len(ids)))
 
 
 # 세션 생성
@@ -46,7 +36,7 @@ def create(condition: str, judge: str, size: int) -> dict:
     session_id = uuid.uuid4().hex[:10]
     session = {
         "id": session_id, "condition": condition, "judge": judge,
-        "createdAt": datetime.now(timezone.utc).isoformat(), "caseIds": _pick(size, random.Random(session_id)),
+        "createdAt": datetime.now(timezone.utc).isoformat(), "caseIds": _pick(size),
     }
     with store.LOCK:
         store.write_json("lab/sessions.json", [*store.load_sessions(), session])

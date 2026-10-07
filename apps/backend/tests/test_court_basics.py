@@ -1,4 +1,6 @@
 # 온톨로지·스킬·증거 검증·접수 분류·레드팀 테스트
+import re
+
 import pytest
 
 from court import agents, ontology
@@ -41,6 +43,58 @@ def test_skills_load_and_render(name):
     assert skill["name"] == name and skill["version"] and skill["role"]
     assert "지시" in skill["prompt"] and "{{" in skill["prompt"]
     assert render("a {{x}} b {{y}}", {"x": "1"}) == "a 1 b {{y}}"
+
+
+@pytest.mark.parametrize("name", ["prosecutor", "defense", "cross-examination", "research-officer", "clerk", "agent-revise"])
+# 수정한 역할 프롬프트와 모든 구획의 자리표시자 치환 검증
+def test_build_prompt_renders_all_changed_skill_placeholders(name):
+    skill = load_skill(name)
+    values = {key: f"치환_{key}" for key in ("claim_types", "concession_types", "absent_keywords", "tool_results", "specialty", "issues", "judge_notes", "side", "opponent_evidence", "record", "round", "feedback", "previous")}
+    for section, template in {None: skill["prompt"], **skill["sections"]}.items():
+        prompt = agents.build_prompt(name, section, **values)
+        assert "{{" not in prompt and "}}" not in prompt
+        assert all(values[key] in prompt for key in re.findall(r"\{\{(\w+)\}\}", template))
+
+
+@pytest.mark.parametrize("evidence", [
+    [{"kind": "quote", "sentenceNo": 1, "quote": '“기금을 만들겠다”'}, {"kind": "quote", "sentenceNo": 1, "quote": '  "기금을   만들겠다"  '}],
+    [{"kind": "absence", "keyword": "하자 분쟁"}, {"kind": "absence", "keyword": " 하자\n분쟁 "}],
+    [{"kind": "absence", "keyword": "‘핵심어’"}, {"kind": "absence", "keyword": "'핵심어'"}],
+])
+# 공백과 따옴표를 정규화한 중복 근거의 한 건 유지
+def test_tidy_evidence_deduplicates_normalized_keys(evidence):
+    assert agents.tidy_evidence(evidence) == [evidence[0]]
+
+
+@pytest.mark.parametrize("other", [
+    {"kind": "quote", "sentenceNo": 2, "quote": "기금"},
+    {"kind": "quote", "sentenceNo": 1, "quote": "다른 인용"},
+    {"kind": "absence", "keyword": "기금"},
+])
+# 종류나 문장 번호나 내용이 다른 근거의 별도 유지
+def test_tidy_evidence_keeps_distinct_keys(other):
+    evidence = [{"kind": "quote", "sentenceNo": 1, "quote": "기금"}, other]
+    assert agents.tidy_evidence(evidence) == evidence
+
+
+# 구체적 단서 없는 낚시성 권고의 사유와 유형 보정
+def test_screening_without_clue_explains_forced_normal():
+    raw = {"isClickbait": True, "confidence": 95, "reason": "제목이 과장됐다.", "claimType": "exaggeration", "offTopicSentenceNo": 99, "absentKeyword": "없는후보"}
+    screening = agents.tidy_screening(raw, [1, 2], ["하자분쟁"])
+    assert screening["isClickbait"] is False and screening["confidence"] == 60 and screening["claimType"] is None
+    assert screening["reason"].startswith("구체적 단서(무관 문장·부재 핵심어)를 찾지 못해 정상으로 보정함.")
+    assert screening["reason"].endswith(raw["reason"])
+
+
+@pytest.mark.parametrize("is_clickbait, claim_type, expected", [
+    (False, "exaggeration", None), (False, "title_reflects_core", "title_reflects_core"),
+    (True, "body_consistent", None), (True, "inserted_irrelevant", "inserted_irrelevant"),
+])
+# 최종 서기 권고와 주장 유형 입장의 일치 검증
+def test_screening_claim_type_matches_final_stance(is_clickbait, claim_type, expected):
+    raw = {"isClickbait": is_clickbait, "confidence": 90, "reason": "합성 사유", "claimType": claim_type, "offTopicSentenceNo": 2}
+    screening = agents.tidy_screening(raw, [1, 2], [])
+    assert screening == {"isClickbait": is_clickbait, "confidence": 90, "reason": "합성 사유", "claimType": expected}
 
 
 # 인용 상태 네 가지
@@ -120,6 +174,34 @@ def test_claim_evidence_kinds_follow_ontology(type_, allows_absence):
     assert bool(agents.tidy_claims({"concession": [claim]}, [type_], key="concession")) == allows_absence
 
 
+@pytest.mark.parametrize("types, expected", [
+    (["inserted_irrelevant", "exaggeration"], ["quote"]),
+    (["inserted_irrelevant", "curiosity_gap"], ["quote", "absence"]),
+])
+# 허용된 주장 유형의 근거 종류 합집합 적용 검증
+def test_claims_schema_uses_allowed_type_union(types, expected):
+    schema = agents.claims_schema(types, types, ["합성핵심어"])
+    for key in ("claims", "concession"):
+        evidence = schema["properties"][key]["items"]["properties"]["evidence"]["items"]["properties"]
+        assert evidence["kind"]["enum"] == expected
+        assert evidence["keyword"]["enum"] == ["", "합성핵심어"]
+
+
+@pytest.mark.parametrize("stance, keywords, claims_kinds, concession_kinds", [
+    ("con", ["합성핵심어"], ["quote"], ["quote", "absence"]),
+    ("pro", ["합성핵심어"], ["quote", "absence"], ["quote"]),
+    ("con", [], ["quote"], ["quote"]),
+    ("pro", [], ["quote"], ["quote"]),
+])
+# 검사와 변호의 주장 및 인정 항목별 부재 근거 허용 검증
+def test_claims_schema_evidence_kinds_by_stance_and_keywords(stance, keywords, claims_kinds, concession_kinds):
+    schema = agents.claims_schema(ontology.selectable_types(stance), ontology.selectable_types(ontology.OPPOSITE[stance]), keywords)
+    for key, expected in (("claims", claims_kinds), ("concession", concession_kinds)):
+        evidence = schema["properties"][key]["items"]["properties"]["evidence"]["items"]["properties"]
+        assert evidence["kind"]["enum"] == expected
+        assert evidence["keyword"]["enum"] == ["", *keywords]
+
+
 # 반대신문 반박의 부재 근거 제거와 인용 근거 유지
 def test_cross_rebuttal_evidence_is_quote_only():
     absence = {"kind": "absence", "keyword": "하자분쟁"}
@@ -182,3 +264,16 @@ def test_absence_candidates_strip_josa_and_drop_present():
     case = {**CASE, "title": "차이슨이 공동주택의 하자분쟁을 조정하다 null", "subtitle": "", "sentences": [{"no": 1, "text": "차이 슨 청소기와 공동주택 이야기."}]}
     assert absence_candidates(case) == ["하자분쟁"]
     assert absence_candidates({**case, "title": "그 는", "subtitle": ""}) == []
+
+
+@pytest.mark.parametrize("tag", ["[주말 TV 본방사수]", "[단독]", "[2021 국감]", "【주말 TV 본방사수】", "<2021 국감>"])
+# 제목과 부제의 편집 태그를 제외한 정상 핵심어 후보 유지
+def test_absence_candidates_exclude_bracketed_editorial_tags(tag):
+    case = {**CASE, "title": f"{tag} 하자분쟁", "subtitle": f"{tag} 공동주택"}
+    assert absence_candidates(case) == ["하자분쟁", "공동주택"]
+
+
+# 한자 약칭이 든 단어를 제외한 정상 핵심어 후보 유지
+def test_absence_candidates_exclude_cjk_words():
+    case = {**CASE, "title": "檢출석 反日적인 하자분쟁", "subtitle": "檢조사 공동주택", "sentences": [{"no": 1, "text": "검찰 출석과 반일 성향을 설명했다."}]}
+    assert absence_candidates(case) == ["하자분쟁", "공동주택"]

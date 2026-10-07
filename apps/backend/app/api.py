@@ -60,6 +60,8 @@ def list_cases(track: Literal["summary", "trial"] | None = None, stage: Literal[
 def create_case(body: NewCaseIn):
     try:
         return store.register_manual_case(str(body.requestId), body.title, body.body, body.category)
+    except UnicodeEncodeError:
+        raise
     except ValueError as e:
         raise HTTPException(409, str(e))
 
@@ -73,7 +75,10 @@ def get_case(case_id: str):
 # 재판 기록 조회
 @router.get("/cases/{case_id}/trials/{n}")
 def get_trial(case_id: str, labSessionId: str | None = None, n: int = Path(ge=1, le=3)):
+    labSessionId = labSessionId or None
     _case_or_404(case_id)
+    if labSessionId and n != 1:
+        raise HTTPException(403, "실험실은 1심 기록만 볼 수 있습니다")
     try:
         projection.lab_condition(labSessionId, case_id)
     except ValueError as e:
@@ -186,6 +191,7 @@ def get_agents():
 # 장부 조회
 @router.get("/ledger")
 def get_ledger(caseId: str | None = None, labSessionId: str | None = None):
+    labSessionId = labSessionId or None
     entries = store.load_ledger(caseId)
     if labSessionId:
         return [e for e in entries if e.get("labSessionId") == labSessionId]
@@ -198,9 +204,11 @@ def add_ledger(body: LedgerIn):
     _case_or_404(body.caseId)
     try:
         entry = ledger.append(body)
+    except UnicodeEncodeError:
+        raise
+    except ledger.LedgerConflictError as e:
+        raise HTTPException(409, str(e))
     except ValueError as e:
-        if "requestId" in str(e):
-            raise HTTPException(409, str(e))
         raise HTTPException(422, str(e))
     return entry
 
@@ -208,6 +216,7 @@ def add_ledger(body: LedgerIn):
 # 사건 기록 묶음 조회
 @router.get("/records/{case_id}")
 def get_records(case_id: str, labSessionId: str | None = None):
+    labSessionId = labSessionId or None
     case = _case_or_404(case_id)
     try:
         projection.lab_condition(labSessionId, case_id)
@@ -215,9 +224,10 @@ def get_records(case_id: str, labSessionId: str | None = None):
         raise HTTPException(403, str(e))
     answer = store.load_answers().get(case_id)
     final = any(e["type"] == "final" and e.get("labSessionId") == labSessionId for e in store.load_ledger(case_id)) if labSessionId else _is_final(case_id)
+    trials = [t for t in store.load_trials(case_id) if not labSessionId or t["instance"] == 1]
     return {
         "case": store.public_case(case),
-        "trials": projection.trials(store.load_trials(case_id), case_id, labSessionId),
+        "trials": projection.trials(trials, case_id, labSessionId),
         "ledger": [e for e in store.load_ledger(case_id) if e.get("labSessionId") == labSessionId],
         "answer": store.public_answer(answer) if final and answer else None,
     }
@@ -235,7 +245,10 @@ def get_workflow():
 # 사건 실행 상태 조회
 @router.get("/cases/{case_id}/execution")
 def get_execution(case_id: str, instance: int = 1, labSessionId: str | None = None):
+    labSessionId = labSessionId or None
     _case_or_404(case_id)
+    if labSessionId and instance != 1:
+        raise HTTPException(403, "실험실은 1심 기록만 볼 수 있습니다")
     if instance not in (1, 2, 3):
         raise HTTPException(422, "instance는 1, 2, 3 중 하나여야 합니다")
     try:

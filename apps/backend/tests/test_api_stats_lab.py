@@ -3,8 +3,83 @@ import json
 import sys
 
 import pytest
-from app import jobs, store
+from app import jobs, lab, stats, store
 from conftest import appeal_case, ensure_trial, finalize_case, first_impression, ledger_body, make_answer, make_trial, post_ledger, reveal_all, rule_failed, scr
+
+
+# 단일 표본은 정답 균형이나 공개 세션 식별자와 무관한 비밀 난수
+def test_lab_single_sample_uses_secret_rng_independent_of_id(env, monkeypatch):
+    monkeypatch.setattr(lab.uuid, "uuid4", lambda: type("Id", (), {"hex": "fixed-public-session"})())
+
+    # 공개 식별자 기반 난수 사용 차단
+    def seeded_rng(*args, **kwargs):
+        pytest.fail("공개 식별자 기반 난수 사용")
+
+    monkeypatch.setattr(lab.random, "Random", seeded_rng)
+    sessions = [lab.create("A", "판사A", 1) for _ in range(64)]
+    answers = store.load_answers()
+    assert {answers[s["caseIds"][0]]["isClickbait"] for s in sessions} == {True, False}
+    assert len({s["id"] for s in sessions}) == 1
+
+
+# 표본 추출은 정답 행 존재만 확인하고 라벨을 읽지 않는 경로
+def test_lab_sampling_does_not_read_answer_labels(env, monkeypatch):
+    # 라벨 접근 감시용 정답 행
+    class Answer(dict):
+        # 정답 키 접근 차단
+        def get(self, key, *args):
+            pytest.fail("표본 추출 중 정답 라벨 접근")
+
+        # 정답 키 직접 접근 차단
+        def __getitem__(self, key):
+            pytest.fail("표본 추출 중 정답 라벨 접근")
+
+    monkeypatch.setattr(store, "load_answers", lambda: {cid: Answer(id=cid) for cid in ("c1", "c2", "c3", "c4")})
+    assert set(lab._pick(50)) == {"c1", "c2", "c3"}
+
+
+# 빈 제출의 판사 이관을 포함한 공개 재판 신뢰성 집계
+def test_stats_escalations_include_empty_submissions(env):
+    trial = make_trial("c1", 1, scr(True, 90))
+    trial["claims"] = []
+    trial["agentStats"] = {"i1-P1": {"escalated": 2}, "i1-D1": {"escalated": 1}}
+    store.write_json("trials/c1/1.json", trial)
+    assert stats.compute()["agents"]["escalations"] == 0
+    store.append_jsonl("ledger/ledger.jsonl", {"id": "first", "at": "2026-01-01T00:00:00Z", **ledger_body("c1", "first_impression", {"leaning": "clickbait", "confidence": 70})})
+    assert stats.compute()["agents"]["escalations"] == 3
+    from app import console
+
+    assert console.dashboard()["kpis"]["escalations"] == 3
+
+
+# 검증관 번복은 서버 무게와 근거별 최신 판정 기준
+def test_checker_overrides_use_code_weights_and_latest_ruling(env):
+    trial = store.load_trial("c1", 1)
+    counted = make_trial("c1", 1, None)["claims"][0]
+    counted["id"], counted["evidence"][0]["id"] = "counted", "counted-E"
+    trial["claims"].append(counted)
+    store.write_json("trials/c1/1.json", trial)
+    for eid, ruling, forged in [("i1-E0", "admitted", 999), ("i1-E1", "admitted", 999), ("i1-E1", "struck", 999), ("i1-E1", "admitted", 999), ("counted-E", "struck", 0)]:
+        store.append_jsonl("ledger/ledger.jsonl", {"id": f"{eid}-{ruling}", "at": "2026-01-01T00:00:00Z", **ledger_body("c1", "evidence_ruling", {"evidenceId": eid, "ruling": ruling, "checkerWeight": forged})})
+    store.append_jsonl("ledger/ledger.jsonl", {"id": "lab", "at": "2026-01-01T00:00:00Z", **ledger_body("c2", "evidence_ruling", {"evidenceId": "i1-E0", "ruling": "struck", "checkerWeight": 10}, session="lab")})
+    store.append_jsonl("cases/cases.jsonl", {**store.get_case("c2"), "id": "variant", "variantOf": "c2"})
+    store.write_json("trials/variant/1.json", make_trial("variant", 1, None))
+    store.append_jsonl("ledger/ledger.jsonl", {"id": "variant", "at": "2026-01-01T00:00:00Z", **ledger_body("variant", "evidence_ruling", {"evidenceId": "i1-E0", "ruling": "struck", "checkerWeight": 10})})
+    assert stats.compute()["checkerOverrides"] == {"admittedVoided": 2, "struckCounted": 1}
+    from app import console
+
+    assert console.dashboard()["kpis"]["humanOverrides"] == 3
+    store.append_jsonl("ledger/ledger.jsonl", {"id": "cancel", "at": "2026-01-01T00:00:00Z", **ledger_body("c1", "evidence_ruling", {"evidenceId": "i1-E0", "ruling": None, "checkerWeight": 0})})
+    assert stats.compute()["checkerOverrides"] == {"admittedVoided": 1, "struckCounted": 1}
+
+
+# 최신 판정의 사건과 심급별 독립 집계
+def test_checker_overrides_keep_case_and_instance_scope(env):
+    for cid, instance in (("c1", 2), ("c2", 1)):
+        store.write_json(f"trials/{cid}/{instance}.json", make_trial(cid, instance, None))
+        store.append_jsonl("ledger/ledger.jsonl", {"id": cid, "at": "2026-01-01T00:00:00Z", **ledger_body(cid, "evidence_ruling", {"evidenceId": f"i{instance}-E0", "ruling": "struck", "checkerWeight": 0}, instance=instance)})
+    store.append_jsonl("ledger/ledger.jsonl", {"id": "lower", "at": "2026-01-01T00:00:00Z", **ledger_body("c1", "evidence_ruling", {"evidenceId": "i1-E0", "ruling": "admitted", "checkerWeight": 10})})
+    assert stats.compute()["checkerOverrides"] == {"admittedVoided": 1, "struckCounted": 2}
 
 
 # 실험 조건 목록
@@ -23,8 +98,7 @@ def test_lab_session_and_done(env):
     assert env.get(f"/api/lab/sessions/{s['id']}").json()["done"] == ["c2"]
     small = env.post("/api/lab/sessions", json={"condition": "A", "judge": "판사A", "size": 2}).json()
     assert len(small["caseIds"]) == 2
-    answers = {"c1": True, "c2": False, "c3": True}
-    assert any(answers[c] for c in small["caseIds"]) and any(not answers[c] for c in small["caseIds"])
+    assert len(set(small["caseIds"])) == 2 and set(small["caseIds"]) <= {"c1", "c2", "c3"}
     assert "isClickbait" not in str(small)
     assert env.get("/api/lab/sessions/none").status_code == 404
     assert env.post("/api/lab/sessions", json={"condition": "Z", "judge": "x"}).status_code == 422
@@ -58,15 +132,15 @@ def test_stats_hand_checked(env):
     assert s["judges"] == {"correct": 1, "total": 2}
     assert s["appeals"] == {"i1": 1, "i2": 0}
     assert s["overturned"] == {"i2": 1, "i3": 0}
-    assert s["checkerOverrides"] == {"admittedVoided": 1, "struckCounted": 1}
+    assert s["checkerOverrides"] == {"admittedVoided": 1, "struckCounted": 0}
     assert s["evidenceStatus"] == {"verified": 3, "misnumbered": 0, "title": 0, "present": 0, "fabricated": 1}
     assert s["byClaimType"] == [{"type": "exaggeration", "label": "과장", "stance": "pro", "count": 3, "verifiedRate": 0.75}]
     assert s["confidenceShift"] == {"mean": 5.0, "n": 2}
     assert s["seatAgreement"] == {"agree": 1, "total": 1}
     assert s["byCategory"] == [
-        {"category": "IT", "cases": 1, "screeningRecall": None},
-        {"category": "경제", "cases": 2, "screeningRecall": None},
-        {"category": "정치", "cases": 1, "screeningRecall": 1.0},
+        {"category": "IT", "cases": 1, "screeningRecall": None, "screeningSample": 0},
+        {"category": "경제", "cases": 2, "screeningRecall": None, "screeningSample": 0},
+        {"category": "정치", "cases": 1, "screeningRecall": 1.0, "screeningSample": 1},
     ]
     assert s["lab"] == [
         {"condition": "A", "sessions": 1, "verdicts": 1, "correct": 0},
@@ -231,7 +305,7 @@ def test_lab_ledger_lifecycle_guards(env):
     assert duplicate.status_code == 200
     assert env.post("/api/ledger", json=ledger_body("c1", "final", {"verdict": "not_clickbait", "action": "L1", "reason": "합성 사유", "votes": [{"seat": 1, "verdict": "clickbait"}]}, session=sid)).status_code == 422
     post_ledger(env, "c1", "final", {"verdict": "clickbait", "action": "L1", "reason": "합성 사유", "votes": [{"seat": 1, "verdict": "clickbait"}]}, session=sid)
-    assert env.post("/api/ledger", json=ledger_body("c1", "seat_verdict", {"verdict": "not_clickbait", "confidence": 70, "reason": "다른 판결 사유입니다"}, session=sid)).status_code == 422
+    assert env.post("/api/ledger", json=ledger_body("c1", "seat_verdict", {"verdict": "not_clickbait", "confidence": 70, "reason": "다른 판결 사유입니다"}, session=sid)).status_code == 409
 
 
 # 실험실 A/B는 첫인상 없이 단축 판결을 기록

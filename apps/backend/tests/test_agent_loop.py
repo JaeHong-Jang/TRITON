@@ -2,8 +2,9 @@
 import json
 
 import pytest
-from court import intake, paths
+from court import intake, ontology, paths
 from court.instances import run
+from court.scale import balance
 
 SENTENCES = [
     {"no": 1, "text": "임팩트금융은 사회 문제를 푸는 프로젝트에 투자하는 금융이다."},
@@ -54,6 +55,61 @@ class Script:
             return {"claims": [{"targetEvidenceId": target, "text": "반박", "strength": 2, "evidence": self.cross.pop(0) if len(self.cross) > 1 else self.cross[0]}]}, META
         queue = self.drafts["검사" if "검사입니다" in system else "변호"]
         return {"claims": queue.pop(0) if len(queue) > 1 else queue[0]}, META
+
+
+# 중복 인용의 제출과 천칭 무게 중복 방지
+def test_duplicate_quote_does_not_double_claim_weight():
+    duplicate = {**GOOD, "quote": " 사회  문제를\n푸는 프로젝트 "}
+    record = run(CASE, 1, [], Script([[claim([GOOD, duplicate])]]))
+    mine = next(c for c in record["claims"] if c["agentId"] == "i1-P1")
+    assert len(mine["evidence"]) == 1 and mine["evidence"][0]["status"] == "verified"
+    assert balance([mine])["pro"] == mine["strength"] == 2
+
+
+# 반대신문 계획과 초안에 상대 주장 문장과 근거의 연결 제공
+def test_cross_prompts_include_opponent_claim_context():
+    seen = []
+
+    # 반대신문 프롬프트와 허용 대상을 기록하는 클라이언트
+    class Spy(Script):
+        # 계획과 초안의 상대 근거 목록 기록
+        def chat_json(self, system, user, schema):
+            props = schema["properties"]
+            target = props.get("targetEvidenceId") if "sentenceNos" in props else props.get("claims", {}).get("items", {}).get("properties", {}).get("targetEvidenceId")
+            if target:
+                seen.append((system, target["enum"], "plan" if "sentenceNos" in props else "draft"))
+            return super().chat_json(system, user, schema)
+
+    prosecutor = {**claim([GOOD]), "text": "제목의 하자분쟁과 본문의 금융 주제가 다르다."}
+    defender = {**claim([GOOD], "title_reflects_core"), "text": "본문의 사회 문제 해결이 핵심이다."}
+    first = run(CASE, 1, [], Script([[prosecutor]], [[defender]]))
+    record = run(CASE, 2, [first], Spy([[prosecutor]], [[defender]]))
+    assert {step for _, _, step in seen} == {"plan", "draft"}
+    for system, targets, _ in seen:
+        for c in record["claims"]:
+            for e in c["evidence"]:
+                if e["id"] in targets:
+                    context = f"주장 {c['id']} ({c['agentId']}, {ontology.claim_type(c['type'])['label']}): {c['text']}"
+                    assert context in system and system.index(context) < system.index(f"  - {e['id']} |")
+                    assert e["quote"] in system
+
+
+# 반대신문 빈 제출의 허용과 상대 근거 무게 유지
+def test_empty_cross_submission_keeps_opponent_weight():
+    # 반박할 수 없어 빈 목록을 제출하는 클라이언트
+    class EmptyCross(Script):
+        # 반대신문 초안의 빈 응답
+        def chat_json(self, system, user, schema):
+            props = schema["properties"]
+            if "claims" in props and "targetEvidenceId" in props["claims"]["items"]["properties"]:
+                return {"claims": []}, META
+            return super().chat_json(system, user, schema)
+
+    first = run(CASE, 1, [], Script([[claim([GOOD])]]))
+    record = run(CASE, 2, [first], EmptyCross([[claim([GOOD])]]))
+    assert record["claims"] and all(c["rebuts"] is None for c in record["claims"])
+    assert all(balance([c])[c["stance"]] == c["strength"] for c in record["claims"])
+    assert balance(record["claims"]) == balance([c for c in record["claims"] if c["rebuts"] is None])
 
 
 # 첫 초안의 위조 인용을 수정 단계가 고친다
@@ -157,7 +213,7 @@ def test_event_order_and_partial_growth():
     events = [e for e, _, _ in seen if e["agentId"] != "i1-K1"]
     prosecutor = [e["kind"] for e in events if e["agentId"] == "i1-P1"]
     assert prosecutor[:2] == ["read", "plan"] and "tool" in prosecutor and prosecutor.index("draft") < prosecutor.index("submit")
-    assert [e["seq"] for e in events] == list(range(1, len(events) + 1))
+    assert [e["seq"] for e, _, _ in seen] == list(range(1, len(seen) + 1))
     runtime_keys = {"nodeId", "fromNode", "reason", "subjectAgentId", "attempt"}
     assert all(e["text"] and set(e) == {"seq", "at", "agentId", "kind", "text", "publicText", "claimId", *runtime_keys} for e in events)
     assert all(e["nodeId"] and e["attempt"] == 1 for e in events)

@@ -12,9 +12,19 @@ ACTIONS = ("L0", "L1", "L2", "L3")
 SEATS = {1: {1}, 2: {1, 2}, 3: {1, 2, 3}}
 
 
+# 장부 기록 충돌
+class LedgerConflictError(ValueError):
+    pass
+
+
 # 숫자 여부 판정
 def _num(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return False
+    try:
+        return math.isfinite(float(v))
+    except OverflowError:
+        return False
 
 
 # 확신도 검사
@@ -34,8 +44,8 @@ def _leaning(v, name: str = "verdict") -> None:
 def validate(entry) -> None:
     if entry.instance not in (1, 2, 3):
         raise ValueError("instance는 1, 2, 3 중 하나여야 합니다")
-    if entry.judge.seat not in (1, 2, 3):
-        raise ValueError("judge.seat는 1, 2, 3 중 하나여야 합니다")
+    if entry.judge.seat not in SEATS[entry.instance]:
+        raise ValueError(f"{entry.instance}심 판사석은 {sorted(SEATS[entry.instance])}번만 허용됩니다")
     if not entry.judge.name.strip():
         raise ValueError("judge.name이 비어 있습니다")
     d, t = entry.data, entry.type
@@ -239,8 +249,6 @@ def validate_transition(entry, entries: list[dict], trials: list[dict], running:
     elif entry.type == "seat_verdict":
         if entry.instance > 1 and not any(e["type"] == "appeal" and e["instance"] == entry.instance - 1 for e in court_entries):
             raise ValueError("직전 심급 항소 뒤에만 상급심 장부를 기록할 수 있습니다")
-        if entry.judge.seat not in SEATS[entry.instance]:
-            raise ValueError(f"{entry.instance}심 판사석은 {sorted(SEATS[entry.instance])}번만 허용됩니다")
         votes = _seat_votes(same, entry.instance)
         if entry.judge.seat in votes:
             raise ValueError("이미 기록된 판사석입니다")
@@ -310,7 +318,7 @@ def _dedupe(entry, entries: list[dict]) -> dict | None:
         return None
     if _same_semantic(duplicate, body):
         return copy.deepcopy(duplicate)
-    raise ValueError("이미 다른 내용으로 기록된 장부 항목입니다")
+    raise LedgerConflictError("이미 다른 내용으로 기록된 장부 항목입니다")
 
 # 요청 본문 비교
 def _same_request(entry: dict, body: dict) -> bool:
@@ -320,6 +328,7 @@ def _same_request(entry: dict, body: dict) -> bool:
 
 # 검증 후 장부 기록
 def append(body, running: bool = False) -> dict:
+    validate(body)
     with store.LOCK:
         from app import jobs
 
@@ -329,7 +338,7 @@ def append(body, running: bool = False) -> dict:
             if found:
                 if _same_request(found, body.model_dump()):
                     return copy.deepcopy(found)
-                raise ValueError("같은 requestId의 본문이 다릅니다")
+                raise LedgerConflictError("같은 requestId의 본문이 다릅니다")
         duplicate = _dedupe(body, entries)
         if duplicate:
             return duplicate
