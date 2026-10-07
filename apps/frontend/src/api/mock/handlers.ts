@@ -692,6 +692,7 @@ export async function handle(method: string, rawPath: string, body: unknown): Pr
   }
   if (path === '/lab/variants') {
     if (!defs.has(String(b.caseId))) throw new ApiError(404, `사건 ${b.caseId}을(를) 찾을 수 없습니다`)
+    if (b.attack === 'move_inserted' && !ledger.some((e) => e.caseId === String(b.caseId) && !e.labSessionId && e.type === 'final')) throw new ApiError(409, '문장 이동 변형은 원 사건 최종 판결 뒤에만 만들 수 있습니다 (정답 비공개)')
     if (defs.has(`${b.caseId}-${b.attack === 'inject_command' ? 'inj' : 'mv'}`)) throw new ApiError(409, '같은 변형 사건이 이미 있습니다')
     return makeVariant(String(b.caseId), String(b.attack))
   }
