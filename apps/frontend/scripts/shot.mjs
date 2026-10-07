@@ -67,7 +67,7 @@ async function desktop() {
   await checkOverflow(page, 'docket')
 
   await page.getByRole('link', { name: '재판 시작' }).first().click()
-  await page.waitForSelector('svg.c2d-svg')
+  await page.waitForSelector('[data-scene="traditional-court"]')
   const caseId = new URL(page.url()).pathname.split('/').pop()
   await shot(page, '02-court-1-ready', 1500)
 
@@ -141,6 +141,7 @@ async function desktop() {
   await page.getByRole('button', { name: '판결 기록하고 정답 보기' }).click()
   await page.getByLabel('정답 공개').waitFor()
   await page.locator('select[aria-label="원본 사건"]').selectOption(VARIANT_CASE)
+  await page.locator('select[aria-label="공격 방식"]').selectOption('inject_command')
   await page.getByRole('button', { name: '변형 사건 만들기' }).click()
   await page.waitForTimeout(1200)
   await shot(page, '24-lab-answer-variant-job', 300)
@@ -167,7 +168,7 @@ async function mobile() {
   await shot(page, '30-mobile-docket', 500)
   await checkOverflow(page, 'm-docket')
   await page.goto(`${url}/court/${MOBILE_CASE}`)
-  await page.waitForSelector('svg.c2d-svg')
+  await page.waitForSelector('[data-scene="traditional-court"]')
   await shot(page, '31-mobile-court-ready', 1500)
   await checkOverflow(page, 'm-court-ready')
   await page.getByRole('button', { name: '재판 시작' }).click()
