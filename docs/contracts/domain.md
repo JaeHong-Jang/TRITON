@@ -77,4 +77,6 @@ def make_variant(case: dict, answer: dict, attack: str) -> tuple[dict, dict]   #
 | `lab/sessions.json` | LabSession 목록 | app |
 | `runs/<runId>.json` | 고정 입력·버전·모델 설정·이벤트·부분 기록·모델 응답 체크포인트 | app.jobs/run_store |
 
+`court.cases` CLI는 저장 전에 대상 `cases.jsonl`과 `answers.jsonl`을 모두 검사한다. 기존 행의 `id`가 새 목록에서 사라지거나 같은 `id`의 행 내용이 달라지면 두 파일 모두 쓰지 않고 0이 아닌 종료 상태로 거부한다. 변형 사건·정답도 같은 규칙으로 보호한다. 오류 메시지는 영향을 받는 ID를 최대 5개 표시하고 새 데이터 폴더 사용을 안내한다. 기존 행이 모두 동일한 재생성은 허용하며, 대상 파일이 없거나 비어 있어도 생성할 수 있다. 다른 표본을 만들려면 `TRITON_DATA_DIR`로 새 데이터 폴더를 지정하거나 `--out-dir`과 `--answers-out`으로 사건·정답의 새 저장 위치를 함께 지정한다.
+
 실행 저장소는 단일 프로세스 전용이다. API 응답에서 runs의 내부 입력/체크포인트를 직접 반환하지 않는다. 공개 범위와 재개 계약은 `execution.md`를 따른다.

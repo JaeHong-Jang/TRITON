@@ -128,7 +128,7 @@ interface LedgerEntry {
 | GET | `/api/lab/conditions` | | `Condition[]` |
 | POST | `/api/lab/sessions` | `{ condition: 'A'\|'B'\|'C', judge: string, size?: number }` | `LabSession` |
 | GET | `/api/lab/sessions/{id}` | | `LabSession` |
-| POST | `/api/lab/variants` | `{ caseId: string, attack: 'move_inserted'\|'inject_command' }` | `{ case: CaseSummary, jobId: string }` 레드팀 변형 사건 생성 + 1심 생성 시작 |
+| POST | `/api/lab/variants` | `{ caseId: string, attack: 'move_inserted'\|'inject_command' }` | `{ case: CaseSummary, jobId: string }` 레드팀 변형 사건 생성 + 1심 생성 시작. `move_inserted`는 원 사건의 법정 `final`(실험실 제외) 이후에만 허용하며, 이전에는 정답과 무관하게 409 + `문장 이동 변형은 원 사건 최종 판결 뒤에만 만들 수 있습니다 (정답 비공개)`. `inject_command`는 최종 판결 전에도 허용 |
 
 ```ts
 interface Answer { id: string; isClickbait: boolean; part: number; method: string; pattern: string | null; level: string | null; insertedSentenceNos: number[]; originalTitle: string }
