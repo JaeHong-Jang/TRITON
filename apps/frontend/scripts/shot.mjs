@@ -38,9 +38,25 @@ async function claimsShown(page, n, timeout = JOB_TIMEOUT) {
   await page.waitForFunction((k) => document.querySelectorAll('#sec-claims article').length >= k, n, { timeout })
 }
 
-// 자동 공개가 끝나 판사석 판결 폼이 열릴 때까지 대기
+// 원문 확인을 통과하지 못한 근거 기각 (판결 전 필수 단계)
+async function ruleFailed(page) {
+  const rows = page.locator('#sec-claims li').filter({ hasNot: page.getByText('원문 확인', { exact: true }) }).filter({ has: page.getByRole('button', { name: '기각' }) })
+  for (const row of await rows.all()) {
+    const struck = row.getByRole('button', { name: '기각' })
+    if ((await struck.getAttribute('aria-pressed')) !== 'true') {
+      await struck.click()
+      await page.waitForTimeout(300)
+    }
+  }
+}
+
+// 자동 공개가 끝나 판사석 판결 폼이 열릴 때까지 대기 (실패 근거가 있으면 먼저 기각)
 async function untilVerdict(page, label) {
-  await page.getByRole('button', { name: label }).waitFor({ timeout: JOB_TIMEOUT })
+  const verdict = page.getByRole('button', { name: label })
+  const review = page.getByText('검증 실패 근거를 먼저 판정해 주세요')
+  await verdict.or(review).first().waitFor({ timeout: JOB_TIMEOUT })
+  if (await review.isVisible()) await ruleFailed(page)
+  await verdict.waitFor({ timeout: JOB_TIMEOUT })
 }
 
 // 첫인상 기록
