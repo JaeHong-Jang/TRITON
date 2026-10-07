@@ -3,7 +3,7 @@
 직접 기사 등록: [registration.md](registration.md)의 POST /api/cases와 저장·중복 방지·정답 없음 규칙을 따른다.
 
 단일 서버: FastAPI가 `:8000`에서 `/api/*`와 `frontend/dist`(SPA)를 함께 서빙. 개발 중 Vite는 `/api`를 `:8000`으로 프록시.
-모든 응답 JSON UTF-8, 오류는 `{ "detail": "<한국어 사유>" }` + 4xx/5xx.
+모든 응답 JSON UTF-8, 오류는 `{ "detail": "<한국어 사유>" }` + 4xx/5xx. 입력 형식 오류(필드 누락·타입·범위·JSON 파싱 실패·본문 인코딩 오류·UTF-8로 저장할 수 없는 문자)는 422, 없는 API 경로는 404, 허용하지 않는 메서드는 405이며 모두 한국어 사유를 쓴다. 영어 내부 문구를 그대로 내보내지 않는다. 형식에 맞지 않는 ID(작업 ID 등)는 500이 아니라 404.
 이 문서가 바뀌면 `apps/backend/app/schemas.py`와 `apps/frontend/src/api/types.ts`를 함께 고친다.
 
 실행 상태·재개·취소·공개 제한의 확장 계약은 [execution.md](execution.md)를 따른다. 아래 기존 응답에도 첫인상/실험실 공개 정책을 적용한다. 숨긴 주장·권고는 빈 배열/null로 반환하며 오류·이벤트·집계로 우회 공개하지 않는다. 판결은 장부의 형식과 현재 절차를 서버에서 검증한 뒤 기록한다.
@@ -105,6 +105,13 @@ interface LedgerEntry {
 
 실험실 기록(`labSessionId` 있음)은 사건 단계·정답 공개·사건 단위 통계에 넣지 않는다 (실험실 통계에만).
 
+장부 입력 규칙 (서버 검증, 위반은 저장하지 않음):
+- `judge.seat`는 모든 장부 유형에서 그 심급의 판사석만 허용한다 (1심 1석, 2심 1~2석, 3심 1~3석). 실험실은 1심 1석.
+- `labSessionId`의 빈 문자열은 `null`(일반 법정)과 같게 취급한다. 요청 본문과 `?labSessionId=` 쿼리 모두 같다.
+- 숫자는 유한한 값만 받는다. JSON의 매우 큰 정수·실수(무한대로 바뀌는 값)·NaN은 500이 아니라 422.
+- 같은 위치에 다른 내용(이미 기록된 첫인상·판사석 판결 등과 다른 본문)은 409, 같은 requestId에 다른 본문도 409.
+- `evidence_ruling.checkerWeight`는 판사가 그때 본 값을 남기는 기록이다. 통계의 검증관 판단 번복 집계(`checkerOverrides`)는 이 값을 믿지 않고 서버가 재판 기록으로 계산한 코드 무게(판사 판정 없이 천칭 규칙 1~5)를 쓰고, 근거마다 최신 판정 하나만 센다 (채택→기각→채택처럼 바꿔도 1건).
+
 사건 단계 계산 (서버): `final` 있으면 final · 마지막 심급 `appeal` 있고 final 없으면 appealed · 장부 기록 있으면 in_trial · 없으면 new.
 
 ## 엔드포인트
@@ -165,7 +172,7 @@ interface AgentEvent { seq: number; at: string; agentId: string; kind: 'read' | 
 // JobInfo:     startedAt: string | null; events: AgentEvent[] (since 이후만); partial: TrialRecord | null (지금까지 제출된 주장만 담긴 중간 기록)
 
 // 자율 범위 정책
-interface Policy { summaryEnabled: boolean; summaryThreshold: number; highRiskCategories: string[] }
+interface Policy { summaryEnabled: boolean; summaryThreshold: number; highRiskCategories: string[] }   // 엄격한 타입: summaryEnabled 불리언, summaryThreshold 0~100 정수(불리언·문자열 자동 변환 없음), highRiskCategories 문자열 목록
 
 // 대시보드
 interface ActivityItem { at: string; caseId: string; kind: 'ledger' | 'agent'; text: string }
@@ -189,8 +196,13 @@ interface AgentProfile {
 }
 
 // Stats에 추가
-// cost:   { calls: number; promptTokens: number; outputTokens: number; seconds: number; byRole: { role: string; calls: number; seconds: number }[] }
+// cost:   { calls: number; failedCalls: number; promptTokens: number; outputTokens: number; seconds: number; byRole: { role: string; calls: number; seconds: number }[] }
+//         calls·seconds는 실패한 실제 모델 요청과 이전 시도의 요청까지 포함하고(캐시 재생 제외), failedCalls는 그중 실패 수 (execution.md 「실행 비용」)
 // agents: { selfCorrectionRate: number | null; escalations: number }
+//         escalations = 판사에게 넘긴 모든 경우: 끝내 못 고친 주장 + 유효한 주장을 만들지 못한 제출 실패 (agentStats.escalated 합과 같다)
+// byCategory 항목에 screeningSample: number 추가 (screeningRecall의 분모 = 그 분야의 최종 확정·정답 낚시성·서기 권고가 있는 사건 수)
+// Dashboard.kpis에 samples: { screening: number; selfCorrection: number; perjury: number } 추가 (각 비율의 분모: 서기 정확도 표본, 처음 초안에서 걸린 근거 수, 공개된 근거 수)
+// AgentProfile.totals: revisions는 작업 단위의 실제 고쳐 쓴 횟수(같은 작업에서 낸 주장 수만큼 중복으로 세지 않음), escalations는 제출 실패 포함
 ```
 
 | 메서드 | 경로 | 요청 | 응답 |
