@@ -1,7 +1,7 @@
 # 온톨로지·스킬·증거 검증·접수 분류·레드팀 테스트
 import pytest
 
-from court import ontology
+from court import agents, ontology
 from court.docket import classify
 from court.evidence import absence_candidates, check_absence, check_quote, coverage, verify
 from court.redteam import INJECTED_COMMAND, make_variant
@@ -69,6 +69,64 @@ def test_verify_shapes():
     keys = {"kind", "sentenceNo", "quote", "keyword", "status", "foundIn"}
     assert set(quote) == keys and set(absence) == keys
     assert absence["sentenceNo"] is None and absence["keyword"] == "하자분쟁"
+
+
+# 잘못된 응답 루트의 빈 결과 처리
+@pytest.mark.parametrize("raw", [None, [{}], "reply", 1, True])
+def test_tidy_malformed_roots_are_empty(raw):
+    assert agents.tidy_statement(raw, ["title_body_mismatch"], ["title_reflects_core"]) == []
+    assert agents.tidy_cross(raw) == []
+    assert agents.tidy_screening(raw, [1, 2], ["하자분쟁"]) == {"isClickbait": False, "confidence": 0, "reason": "", "claimType": None}
+    assert agents.tidy_officer(raw, {}) == {"summary": "", "issues": [], "reclassified": [], "recommendedAction": "L0"}
+
+
+# 목록이 아닌 주장·근거·보고서 항목의 빈 결과 처리
+@pytest.mark.parametrize("items", [None, {"type": "title_body_mismatch"}, "reply", 1, True])
+def test_tidy_malformed_containers_are_empty(items):
+    assert agents.tidy_evidence(items) == []
+    assert agents.tidy_statement({"claims": items, "concession": items}, ["title_body_mismatch"], ["title_reflects_core"]) == []
+    assert agents.tidy_cross({"claims": items}) == []
+    claim = {"type": "title_body_mismatch", "targetEvidenceId": "E1", "text": "주장", "evidence": items}
+    assert agents.tidy_claims({"claims": [claim]}, ["title_body_mismatch"]) == []
+    assert agents.tidy_cross({"claims": [claim]}) == []
+    assert agents.tidy_officer({"issues": items, "reclassified": items}, {"E1": "pro"}) == {"summary": "", "issues": [], "reclassified": [], "recommendedAction": "L0"}
+
+
+# 유한하지 않은 힘 세기와 확신도의 기본값 보정
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
+def test_tidy_nonfinite_strength_and_confidence(value):
+    evidence = [{"kind": "quote", "sentenceNo": 2, "quote": "투자하는 금융"}]
+    claim = {"type": "title_body_mismatch", "targetEvidenceId": "E1", "text": "주장", "strength": value, "evidence": evidence}
+    assert agents.tidy_claims({"claims": [claim]}, ["title_body_mismatch"])[0]["strength"] == 1
+    assert agents.tidy_cross({"claims": [claim]})[0]["strength"] == 1
+    assert agents.tidy_screening({"confidence": value, "offTopicSentenceNo": 2}, [1, 2], [])["confidence"] == 0
+
+
+@pytest.mark.parametrize("type_, allows_absence", [
+    ("title_body_mismatch", True), ("curiosity_gap", True),
+    ("inserted_irrelevant", False), ("exaggeration", False),
+    ("title_reflects_core", False), ("body_consistent", False), ("strong_but_factual", False), ("rebuttal", False),
+])
+# 주장 유형별 부재 근거 허용 범위와 인용 근거 유지
+def test_claim_evidence_kinds_follow_ontology(type_, allows_absence):
+    absence = {"kind": "absence", "keyword": "하자분쟁"}
+    quote = {"kind": "quote", "sentenceNo": 2, "quote": "투자하는 금융"}
+    assert check_absence(absence["keyword"], CASE)["status"] == "verified"
+    claim = {"type": type_, "text": "주장", "evidence": [absence]}
+    assert bool(agents.tidy_claims({"claims": [claim]}, [type_])) == allows_absence
+    mixed = {**claim, "evidence": [absence, quote]}
+    expected = [absence, quote] if allows_absence else [quote]
+    assert agents.tidy_claims({"claims": [mixed]}, [type_])[0]["evidence"] == expected
+    assert bool(agents.tidy_claims({"concession": [claim]}, [type_], key="concession")) == allows_absence
+
+
+# 반대신문 반박의 부재 근거 제거와 인용 근거 유지
+def test_cross_rebuttal_evidence_is_quote_only():
+    absence = {"kind": "absence", "keyword": "하자분쟁"}
+    quote = {"kind": "quote", "sentenceNo": 2, "quote": "투자하는 금융"}
+    claim = {"targetEvidenceId": "E1", "text": "반박", "evidence": [absence]}
+    assert agents.tidy_cross({"claims": [claim]}) == []
+    assert agents.tidy_cross({"claims": [{**claim, "evidence": [absence, quote]}]})[0]["evidence"] == [quote]
 
 
 # 접수 분류 규칙

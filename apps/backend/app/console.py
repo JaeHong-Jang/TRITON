@@ -62,8 +62,9 @@ def _totals(trials: list[dict], intakes: list[dict]) -> dict[str, dict]:
 def _working_text(job: dict) -> str:
     if not projection.court_open(job.get("caseId", "")):
         return "재판 준비 중" if job["status"] == "running" else "준비 대기"
-    if job.get("_recent"):
-        return job["_recent"][-1].get("text", job.get("step", ""))
+    events = [e for e in job.get("_recent", []) if projection.court_open(e.get("caseId") or job.get("caseId", ""))]
+    if events:
+        return events[-1].get("text", job.get("step", ""))
     return job.get("step", "")
 
 
@@ -100,14 +101,11 @@ def _recent(trials: list[dict], intakes: list[dict], active: list[dict]) -> list
         names = {a["id"]: a["name"] for a in r.get("bench", [])}
         items += [{"at": e["at"], "caseId": r["caseId"], "kind": "agent", "text": f"{names.get(e['agentId'], '서기' if e['agentId'] == 'i1-K1' else '증거 검증관')} · {e['text']}"} for e in r.get("trace", []) if e["kind"] in ACTIVITY_KINDS]
     for j in active:
-        if j["caseId"] in variants:
-            continue
-        if not projection.court_open(j["caseId"]):
+        if j["caseId"] not in variants and not projection.court_open(j["caseId"]):
             previous = hidden.get(j["caseId"])
             if previous is None or previous["status"] == "queued" and j["status"] == "running":
                 hidden[j["caseId"]] = j
-            continue
-        items += [{"at": e["at"], "caseId": j["caseId"], "kind": "agent", "text": e["text"]} for e in j["_recent"] if e["kind"] in ACTIVITY_KINDS and (e["at"], e["agentId"], e["kind"], e["text"]) not in saved]
+        items += [{"at": e["at"], "caseId": e.get("caseId") or j["caseId"], "kind": "agent", "text": e["text"]} for e in j["_recent"] if (e.get("caseId") or j["caseId"]) not in variants and projection.court_open(e.get("caseId") or j["caseId"]) and e["kind"] in ACTIVITY_KINDS and (e["at"], e["agentId"], e["kind"], e["text"]) not in saved]
     for j in hidden.values():
         at = j.get("startedAt") or j.get("createdAt")
         if at:

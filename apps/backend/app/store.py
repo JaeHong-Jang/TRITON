@@ -31,7 +31,7 @@ def read_jsonl(rel: str) -> list[dict]:
     with LOCK:
         if not path.exists():
             return []
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8").split("\n")
     out = []
     for i, line in enumerate(lines):
         if not line.strip():

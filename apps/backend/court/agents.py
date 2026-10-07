@@ -1,4 +1,5 @@
 # 에이전트 프롬프트·응답 스키마·응답 정리
+import math
 import re
 
 from court import ontology
@@ -160,8 +161,9 @@ def _is_int(value):
 
 # 근거 목록 정리
 def tidy_evidence(raw):
+    raw = raw if isinstance(raw, list) else []
     tidy = []
-    for e in (raw or [])[:MAX_EVIDENCE]:
+    for e in raw[:MAX_EVIDENCE]:
         if not isinstance(e, dict):
             continue
         if e.get("kind") == "absence" and str(e.get("keyword") or "").strip():
@@ -173,16 +175,22 @@ def tidy_evidence(raw):
 
 # 힘 세기 범위 보정
 def _strength(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return 1
     return min(3, max(1, int(value))) if isinstance(value, (int, float)) and not isinstance(value, bool) else 1
 
 
 # 주장 응답 정리 (허용 유형만 유지)
 def tidy_claims(raw, allowed_types, max_claims=MAX_CLAIMS, key="claims"):
+    raw = raw if isinstance(raw, dict) else {}
+    claims = raw.get(key)
+    claims = claims if isinstance(claims, list) else []
     tidy = []
-    for c in ((raw or {}).get(key) or [])[:max_claims]:
+    for c in claims[:max_claims]:
         if not isinstance(c, dict) or c.get("type") not in allowed_types:
             continue
-        evidence = tidy_evidence(c.get("evidence"))
+        kinds = ontology.claim_type(c["type"])["evidence_kinds"]
+        evidence = [e for e in tidy_evidence(c.get("evidence")) if e["kind"] in kinds]
         if evidence and str(c.get("text") or "").strip():
             tidy.append({"type": c["type"], "text": str(c["text"]).strip(), "strength": _strength(c.get("strength")), "evidence": evidence})
     return tidy
@@ -195,11 +203,15 @@ def tidy_statement(raw, types, concession_types):
 
 # 반박 응답 정리 (대상 id 유효성은 호출부에서 확인)
 def tidy_cross(raw):
+    raw = raw if isinstance(raw, dict) else {}
+    claims = raw.get("claims")
+    claims = claims if isinstance(claims, list) else []
     tidy = []
-    for c in ((raw or {}).get("claims") or [])[:1]:
+    for c in claims[:1]:
         if not isinstance(c, dict) or not isinstance(c.get("targetEvidenceId"), str):
             continue
-        evidence = tidy_evidence(c.get("evidence"))
+        kinds = ontology.claim_type("rebuttal")["evidence_kinds"]
+        evidence = [e for e in tidy_evidence(c.get("evidence")) if e["kind"] in kinds]
         if evidence and str(c.get("text") or "").strip():
             tidy.append({"targetEvidenceId": c["targetEvidenceId"], "text": str(c["text"]).strip(), "strength": _strength(c.get("strength")), "evidence": evidence})
     return tidy
@@ -207,8 +219,10 @@ def tidy_cross(raw):
 
 # 서기 권고 정리 (구체적 단서가 없으면 낚시성 아님·낮은 확신도로 제한)
 def tidy_screening(raw, sentence_nos, keywords):
-    raw = raw or {}
+    raw = raw if isinstance(raw, dict) else {}
     confidence = raw.get("confidence")
+    if isinstance(confidence, float) and not math.isfinite(confidence):
+        confidence = 0
     claim_type = raw.get("claimType")
     clue = raw.get("offTopicSentenceNo") in sentence_nos or raw.get("absentKeyword") in keywords and raw.get("absentKeyword")
     confidence = min(100, max(0, int(confidence))) if isinstance(confidence, (int, float)) and not isinstance(confidence, bool) else 0
@@ -231,14 +245,17 @@ def tidy_plan(raw, sentence_nos, types=None, target_ids=None):
 
 # 재판연구관 보고서 정리 (위증 목록은 호출부가 채움)
 def tidy_officer(raw, stances):
-    raw = raw or {}
+    raw = raw if isinstance(raw, dict) else {}
     reclassified = []
-    for r in (raw.get("reclassified") or [])[:4]:
+    items = raw.get("reclassified")
+    items = items if isinstance(items, list) else []
+    for r in items[:4]:
         if not isinstance(r, dict) or r.get("evidenceId") not in stances or r.get("to") not in ("pro", "con"):
             continue
         if r["to"] != stances[r["evidenceId"]]:
             reclassified.append({"evidenceId": r["evidenceId"], "from": stances[r["evidenceId"]], "to": r["to"], "why": str(r.get("why") or "").strip()})
-    issues = [str(i).strip() for i in (raw.get("issues") or [])[:4] if str(i).strip()]
+    issues = raw.get("issues")
+    issues = [str(i).strip() for i in issues[:4] if str(i).strip()] if isinstance(issues, list) else []
     action = raw.get("recommendedAction")
     return {"summary": str(raw.get("summary") or "").strip(), "issues": issues, "reclassified": reclassified, "recommendedAction": action if action in ACTIONS else "L0"}
 

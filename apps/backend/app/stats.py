@@ -2,6 +2,7 @@
 from collections import defaultdict
 
 from app import lab, projection, store, summary
+from app.ledger import SEATS
 
 STATUSES = ("verified", "misnumbered", "title", "present", "fabricated")
 
@@ -28,7 +29,8 @@ def _verdict_of(entries: list[dict], seats: dict[int, dict[int, str]], instance:
     final = [e for e in entries if e["type"] == "final" and e["instance"] == instance]
     if final:
         return final[-1]["data"]["verdict"]
-    return _majority(list(seats.get(instance, {}).values()))
+    votes = seats.get(instance, {})
+    return _majority(list(votes.values())) if set(votes) == SEATS[instance] else None
 
 
 # 낚시성 방향 점수
@@ -118,7 +120,7 @@ def compute() -> dict:
                 judges["correct"] += (verdict == "clickbait") == answer["isClickbait"]
         seats = _seat_verdicts(entries)
         for k in (2, 3):
-            upper, lower = _verdict_of(entries, seats, k), _majority(list(seats.get(k - 1, {}).values()))
+            upper, lower = _verdict_of(entries, seats, k), _verdict_of(entries, seats, k - 1)
             if upper and lower and upper != lower:
                 overturned[f"i{k}"] += 1
             if len(seats.get(k, {})) == k:
@@ -143,8 +145,8 @@ def compute() -> dict:
         if e["type"] == "appeal" and e["instance"] in (1, 2):
             appeals[f"i{e['instance']}"] += 1
         elif e["type"] == "evidence_ruling":
-            overrides["admittedVoided"] += d["ruling"] == "admitted" and d["checkerWeight"] == 0
-            overrides["struckCounted"] += d["ruling"] == "struck" and d["checkerWeight"] > 0
+            overrides["admittedVoided"] += d.get("ruling") == "admitted" and d["checkerWeight"] == 0
+            overrides["struckCounted"] += d.get("ruling") == "struck" and d["checkerWeight"] > 0
         elif e["type"] == "first_impression":
             first_impressions[key] = _score(d["leaning"], d["confidence"])
         elif e["type"] == "seat_verdict" and e["instance"] == 1 and key in first_impressions:

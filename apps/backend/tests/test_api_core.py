@@ -2,6 +2,8 @@
 import sys
 import time
 
+import pytest
+from app import jobs
 from conftest import appeal_case, ensure_trial, finalize_case, first_impression, ledger_body, post_ledger, reveal_all
 
 
@@ -263,3 +265,17 @@ def test_execution_view_requires_all_upper_seats(env):
     post_ledger(env, "c1", "seat_verdict", {"verdict": "clickbait", "confidence": 70, "reason": "충분히 긴 판결 사유입니다"}, instance=2, seat=1)
     steps = {s["id"]: s for s in env.get("/api/cases/c1/execution?instance=2").json()["steps"]}
     assert steps["seat_verdict"]["status"] == "active" and steps["seat_verdict"]["reason"].startswith("1/2석 판결")
+
+
+@pytest.mark.parametrize("payload", [None, {"caseIds": ["c4"]}])
+# 모델 미연결 접수 검토의 실행 차단
+def test_intake_requires_model_before_enqueue(env, monkeypatch, payload):
+    monkeypatch.setattr(sys.modules["court.llm"].OllamaClient, "available", lambda self: False)
+    monkeypatch.setattr(jobs, "_ensure_worker", lambda: None)
+    response = env.post("/api/intake", json=payload)
+    assert response.status_code == 503
+    assert response.json()["detail"] == jobs.model_reason(jobs.model_health())
+    assert not jobs.JOBS and jobs.QUEUE.empty()
+    assert not (env.data / "runs").exists() and not (env.data / "intake").exists()
+    assert env.calls.get("intake", []) == []
+    assert env.post("/api/intake", json={"caseIds": ["missing"]}).status_code == 404

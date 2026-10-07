@@ -71,6 +71,54 @@ def test_revision_fixes_fabricated_quote():
     assert record["agentStats"]["checker"]["perjury"] == 1
 
 
+@pytest.mark.parametrize("first, final", [
+    ([claim([GOOD, BAD])], [claim([GOOD])]),
+    ([claim([GOOD]), claim([BAD], "exaggeration")], [claim([GOOD])]),
+    ([claim([GOOD]), claim([BAD], "exaggeration")], [claim([GOOD]), claim([GOOD], "exaggeration")]),
+])
+# 실패 근거나 주장 삭제와 기존 통과 근거 복제의 수정 통계 제외
+def test_deleting_failed_evidence_does_not_count_as_fixed(first, final):
+    record = run(CASE, 1, [], Script([first, final]))
+    stats = record["agentStats"]["i1-P1"]
+    assert (stats["firstFailed"], stats["fixed"], stats["revisions"]) == (1, 0, 1)
+    mine = [c for c in record["claims"] if c["agentId"] == "i1-P1"]
+    assert mine and all(e["status"] == "verified" for c in mine for e in c["evidence"])
+
+
+@pytest.mark.parametrize("first, final, first_failed, fixed", [
+    ([claim([GOOD, BAD]), claim([BAD], "exaggeration")], [claim([GOOD, {"kind": "quote", "sentenceNo": 2, "quote": "기금을 만들겠다고 강조했다"}])], 2, 1),
+    ([claim([{**GOOD, "sentenceNo": 2}])], [claim([GOOD])], 1, 1),
+    ([claim([BAD])], [claim([GOOD, BAD])], 1, 0),
+])
+# 수정 통계의 새 통과 근거 수와 실패 감소량 상한
+def test_fixed_counts_only_new_verified_evidence(first, final, first_failed, fixed):
+    record = run(CASE, 1, [], Script([first, final]))
+    stats = record["agentStats"]["i1-P1"]
+    assert (stats["firstFailed"], stats["fixed"]) == (first_failed, fixed)
+
+
+# 잘못된 초안 응답의 반복 재생도 빈 주장 에스컬레이션으로 종료
+@pytest.mark.parametrize("reply", [[{"claims": []}], {"claims": {"type": "title_body_mismatch"}}, {"claims": [claim({"kind": "quote"})]}])
+def test_malformed_draft_replay_escalates(reply):
+    # 검사 초안에 같은 잘못된 응답을 반복하는 클라이언트
+    class Malformed(Script):
+        # 정상 JSON의 잘못된 형태 반환
+        def chat_json(self, system, user, schema):
+            if "concession" in schema["properties"] and "검사입니다" in system:
+                return reply, META
+            return super().chat_json(system, user, schema)
+
+    client = Malformed([[claim([GOOD])]])
+    for _ in range(2):
+        record = run(CASE, 1, [], client)
+        stats = record["agentStats"]["i1-P1"]
+        assert (stats["calls"], stats["escalated"], stats["firstFailed"], stats["fixed"]) == (2, 1, 0, 0)
+        events = [e for e in record["trace"] if e["agentId"] == "i1-P1"]
+        assert events[-1]["kind"] == "escalate" and "유효한 주장을 만들지 못함" in events[-1]["text"]
+        assert not any(c["agentId"] == "i1-P1" for c in record["claims"])
+        assert any(c["agentId"] == "i1-D1" for c in record["claims"])
+
+
 # 수정 요청에는 틀린 근거와 실제 원문이 들어간다
 def test_revise_prompt_has_real_sentence():
     seen = []

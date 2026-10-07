@@ -1,6 +1,7 @@
 # 장부 검증과 사건 단계 계산
 import copy
 import json
+import math
 import uuid
 from datetime import datetime, timezone
 
@@ -13,7 +14,7 @@ SEATS = {1: {1}, 2: {1, 2}, 3: {1, 2, 3}}
 
 # 숫자 여부 판정
 def _num(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
 # 확신도 검사
@@ -47,7 +48,7 @@ def validate(entry) -> None:
     elif t == "evidence_ruling":
         if not isinstance(d.get("evidenceId"), str) or not d["evidenceId"]:
             raise ValueError("evidenceId가 필요합니다")
-        if d.get("ruling") not in ("admitted", "struck", None):
+        if "ruling" not in d or d["ruling"] not in ("admitted", "struck", None):
             raise ValueError("ruling은 admitted, struck, null 중 하나여야 합니다")
         if not _num(d.get("checkerWeight")):
             raise ValueError("checkerWeight는 숫자여야 합니다")
@@ -246,7 +247,7 @@ def validate_transition(entry, entries: list[dict], trials: list[dict], running:
         pending = [seat for seat in SEATS[entry.instance] if seat not in votes]
         if not pending or entry.judge.seat != pending[0]:
             raise ValueError("판사석은 순서대로 기록해야 합니다")
-        if not _complete_trial(_trial(trials, entry.instance)) or running:
+        if not _complete_trial(store.load_trial(entry.caseId, entry.instance)) or running:
             raise ValueError("완료된 재판 기록이 필요합니다")
         if not _all_claims_revealed(same, trials, entry.instance):
             raise ValueError("모든 주장을 공개해야 판결할 수 있습니다")

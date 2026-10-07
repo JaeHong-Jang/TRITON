@@ -2,11 +2,13 @@
 import json
 import time
 import types
+from urllib.error import URLError
 
 import pytest
 
-from app import jobs, run_store
+from app import console, jobs, projection, run_store
 from court import paths, workflow
+from court.agent_loop import Session
 
 
 # 합성 사건
@@ -131,6 +133,206 @@ def test_cancel_fences_late_callbacks_and_trial_write(monkeypatch):
     job = jobs.get(captured["job_id"])
     assert job["events"] == [] and job["partial"] is None
     assert not (paths.DATA_DIR / "trials" / CASE["id"] / "1.json").exists()
+
+
+# 수동 실행을 위한 작업 큐 고정
+@pytest.fixture
+def manual_queue(monkeypatch):
+    monkeypatch.setattr(jobs, "_ensure_worker", lambda: None)
+    monkeypatch.setattr(jobs.QUEUE, "put", lambda item: None)
+
+
+# 일괄 접수 이벤트의 사건 식별자와 개별 공개 범위
+@pytest.mark.parametrize("open_first", [False, True])
+def test_intake_batch_events_keep_case_disclosure(monkeypatch, manual_queue, open_first):
+    hidden_case = {**CASE, "id": "hidden-case"}
+    cases = [CASE, hidden_case] if open_first else [hidden_case, CASE]
+    monkeypatch.setattr(projection, "court_open", lambda cid: cid == CASE["id"])
+
+    # 사건별 서기 권고 이벤트 발행
+    def run_case(case, client, on_event=None):
+        on_event({"seq": 1, "at": "2026-01-01T00:00:00+00:00", "agentId": "i1-K1", "kind": "done", "text": f"{case['id']} 권고 작성 · 낚시성 의심 · 확신도 90", "claimId": None}, None, "clerk")
+
+    monkeypatch.setattr(jobs.store, "court", lambda name: types.SimpleNamespace(OllamaClient=lambda: types.SimpleNamespace(model="fake", options={})) if name == "llm" else types.SimpleNamespace(run_case=run_case))
+    job_id = jobs.enqueue_intake(cases)
+    job = jobs.JOBS[job_id]
+    jobs._run(job, 1)
+    raw = jobs.get(job_id)
+
+    assert raw["status"] == "done"
+    assert [e.get("caseId") for e in raw["events"]] == [c["id"] for c in cases]
+    assert [e["caseId"] for e in projection.job(raw)["events"]] == [CASE["id"]]
+    assert projection.job(jobs.get(job_id, since=1))["events"] == ([] if open_first else [raw["events"][1]])
+    assert [e["caseId"] for e in run_store.load(job_id)["events"]] == [c["id"] for c in cases]
+
+    job["status"] = "running"
+    active = jobs.active()
+    recent = console._recent([], [], active)
+    recommendations = [e for e in recent if "권고 작성" in e["text"]]
+    assert [e["caseId"] for e in recommendations] == [CASE["id"]]
+    assert all("hidden-case 권고" not in e["text"] for e in recent)
+
+
+# 사건 식별자가 없는 재판 이벤트의 기존 공개 규칙
+@pytest.mark.parametrize("open_", [False, True])
+def test_job_projection_preserves_untagged_event_gate(monkeypatch, open_):
+    monkeypatch.setattr(projection, "court_open", lambda cid: cid == "open" or cid == CASE["id"] and open_)
+    events = [{"text": "재판 이벤트"}, {"caseId": "hidden", "text": "비공개 권고"}, {"caseId": "open", "text": "공개 권고"}]
+    raw = {"caseId": CASE["id"], "status": "running", "step": "주장 생성", "events": events, "partial": None}
+
+    assert projection.job(raw)["events"] == ([events[0], events[2]] if open_ else [events[2]])
+    assert raw["events"] == events
+
+
+# 이전 사건의 비공개 권고를 작업실 텍스트에서 제외
+def test_working_text_filters_events_by_case(monkeypatch):
+    monkeypatch.setattr(projection, "court_open", lambda cid: cid == CASE["id"])
+    job = {"caseId": CASE["id"], "status": "running", "step": "접수 검토", "_recent": [{"caseId": "hidden", "text": "비공개 권고"}]}
+
+    assert console._working_text(job) == "접수 검토"
+    job["_recent"].insert(0, {"caseId": CASE["id"], "text": "공개 권고"})
+    assert console._working_text(job) == "공개 권고"
+
+
+# 파싱 실패와 동일 입력의 여러 응답을 호출 순서대로 재생
+def test_retry_replays_parse_failures_and_repeated_replies_in_order(monkeypatch, manual_queue):
+    external_calls, attempts = [], []
+
+    # 파싱 실패 사이에 서로 다른 응답을 주는 모델
+    class Client:
+        model = "fake"
+        options = {}
+
+        # 실패와 성공을 번갈아 반환하는 모델 호출
+        def chat_json(self, system, user, schema):
+            external_calls.append(system)
+            if len(external_calls) == 1:
+                raise ValueError("invalid JSON")
+            if len(external_calls) == 3:
+                raise KeyError("missing reply")
+            return {"ok": len(external_calls)}, {"promptTokens": 1, "outputTokens": 1, "seconds": 0.01}
+
+    # 같은 입력으로 두 번 질문하고 첫 시도에서 중단
+    def run(case, instance, prior, client, judge_notes="", on_step=None, on_event=None):
+        session = Session(case, instance, client)
+        replies = [session.ask("i1-P1", "prosecution", "draft", "same", {"type": "object"}) for _ in range(2)]
+        attempts.append((replies, session.task_calls))
+        if len(attempts) == 1:
+            raise RuntimeError("checkpoint 이후 중단")
+        return {"claims": [], "trace": [], "calls": session.calls, "agentStats": session.stats}
+
+    monkeypatch.setattr(jobs.store, "court", lambda name: types.SimpleNamespace(OllamaClient=Client) if name == "llm" else types.SimpleNamespace(run=run))
+    job_id = jobs.enqueue(CASE, 1, [])
+    jobs._run(jobs.JOBS[job_id], 1)
+    checkpoints = run_store.load(job_id)["checkpoints"]
+    assert [c["status"] for c in checkpoints] == ["invalid", "complete", "invalid", "complete"]
+    jobs.JOBS.clear()
+    jobs.retry(job_id)
+    jobs._run(jobs.JOBS[job_id], 2)
+
+    assert attempts == [([{"ok": 2}, {"ok": 4}], 4)] * 2
+    assert external_calls == ["same"] * 4
+    assert jobs.get(job_id)["status"] == "done"
+    assert run_store.load(job_id)["checkpoints"] == checkpoints
+
+
+# 통신 실패는 체크포인트에 넣지 않고 재시도에서 실제 호출
+@pytest.mark.parametrize("error", [OSError("connection failed"), URLError("connection failed"), TimeoutError("timed out")])
+def test_retry_does_not_cache_transport_errors(monkeypatch, manual_queue, error):
+    external_calls = []
+
+    # 첫 호출에서 연결 실패를 일으키는 모델
+    class Client:
+        model = "fake"
+        options = {}
+
+        # 연결 복구 후 응답 반환
+        def chat_json(self, system, user, schema):
+            external_calls.append(system)
+            if len(external_calls) == 1:
+                raise error
+            return {"ok": 1}, {}
+
+    # 모델 호출 후 빈 재판 반환
+    def run(case, instance, prior, client, judge_notes="", on_step=None, on_event=None):
+        client.chat_json("same", "user", {})
+        return {"claims": []}
+
+    monkeypatch.setattr(jobs.store, "court", lambda name: types.SimpleNamespace(OllamaClient=Client) if name == "llm" else types.SimpleNamespace(run=run))
+    job_id = jobs.enqueue(CASE, 1, [])
+    jobs._run(jobs.JOBS[job_id], 1)
+    assert run_store.load(job_id)["checkpoints"] == []
+    jobs.retry(job_id)
+    jobs._run(jobs.JOBS[job_id], 2)
+
+    assert external_calls == ["same", "same"]
+    assert jobs.get(job_id)["status"] == "done"
+
+
+# 이미 저장된 재판이 있는 실행의 재시도 차단
+@pytest.mark.parametrize("same_run", [False, True])
+def test_retry_blocks_existing_trial(manual_queue, same_run):
+    job_id = jobs.enqueue(CASE, 1, [])
+    job = jobs.JOBS[job_id]
+    job["status"] = "error"
+    jobs._save(job)
+    record = {"claims": [{"text": "판결에 사용한 주장"}], "execution": {"runId": job_id if same_run else "other-run"}}
+    jobs.store.save_trial(CASE["id"], 1, record)
+
+    assert jobs.retry_reason(job_id, model_block="")
+    with pytest.raises(ValueError):
+        jobs.retry(job_id)
+    assert jobs.get(job_id)["attempt"] == 1
+    assert jobs.store.load_trial(CASE["id"], 1) == record
+
+
+# 같은 실행의 저장 재판은 최종 저장에서 덮어쓰지 않고 완료 처리
+@pytest.mark.parametrize("same_run", [False, True])
+def test_trial_commit_preserves_existing_record(monkeypatch, manual_queue, same_run):
+    monkeypatch.setattr(jobs.store, "court", lambda name: types.SimpleNamespace(OllamaClient=lambda: types.SimpleNamespace(model="fake", options={})) if name == "llm" else types.SimpleNamespace(run=lambda *a, **k: {"claims": [{"text": "새 주장"}]}))
+    job_id = jobs.enqueue(CASE, 1, [])
+    record = {"claims": [{"text": "판결에 사용한 주장"}], "execution": {"runId": job_id if same_run else "other-run"}}
+    jobs.store.save_trial(CASE["id"], 1, record)
+    monkeypatch.setattr(jobs.store, "save_trial", lambda *a: pytest.fail("기존 재판 저장 호출"))
+    jobs._run(jobs.JOBS[job_id], 1)
+
+    assert jobs.store.load_trial(CASE["id"], 1) == record
+    assert jobs.get(job_id)["status"] == ("done" if same_run else "error")
+    if same_run:
+        assert jobs.get(job_id)["step"] == "완료"
+        assert run_store.load(job_id)["status"] == "done"
+    else:
+        assert "다른 실행" in jobs.get(job_id)["error"]
+
+
+# 모든 미완료 저장 실행에서 같은 실행의 재판 완료 상태 복구
+@pytest.mark.parametrize("status", ["queued", "running", "interrupted", "error", "cancelled"])
+@pytest.mark.parametrize("same_run", [False, True])
+def test_recover_reconciles_all_saved_trial_runs(status, same_run):
+    run_store.save({"id": "saved-trial", "kind": "trial", "caseId": CASE["id"], "instance": 1, "status": status, "attempt": 1})
+    jobs.store.save_trial(CASE["id"], 1, {"execution": {"runId": "saved-trial" if same_run else "other-run"}})
+    jobs.recover()
+    expected = "done" if same_run else "interrupted" if status in ("queued", "running") else status
+
+    assert run_store.load("saved-trial")["status"] == expected
+    assert jobs.get("saved-trial")["status"] == expected
+    if same_run:
+        assert jobs.get("saved-trial")["step"] == "완료"
+    jobs.JOBS.clear()
+    jobs.recover()
+    assert jobs.get("saved-trial")["status"] == expected
+
+
+# 빈 접수 묶음은 저장된 재판 작업과 중복 처리하지 않는 규칙
+def test_empty_intake_dedupe_filters_saved_job_kind(manual_queue):
+    trial_id = jobs.enqueue(CASE, 1, [])
+    jobs.JOBS.clear()
+    intake_id = jobs.enqueue_intake([])
+
+    assert intake_id != trial_id
+    assert run_store.load(intake_id)["kind"] == "intake"
+    jobs.JOBS.clear()
+    assert jobs.enqueue_intake([]) == intake_id
 
 
 # 취소 뒤 다음 모델 호출 차단

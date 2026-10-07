@@ -1,7 +1,10 @@
 # 통계·실험실·변형 사건 API 테스트
 import json
+import sys
 
-from conftest import appeal_case, ensure_trial, finalize_case, first_impression, ledger_body, make_trial, post_ledger, reveal_all, rule_failed, scr
+import pytest
+from app import jobs, store
+from conftest import appeal_case, ensure_trial, finalize_case, first_impression, ledger_body, make_answer, make_trial, post_ledger, reveal_all, rule_failed, scr
 
 
 # 실험 조건 목록
@@ -93,6 +96,64 @@ def test_variant_create_and_duplicate(env):
     assert env.post("/api/lab/variants", json={"caseId": "c1", "attack": "bad"}).status_code == 422
 
 
+@pytest.mark.parametrize("valid_answer", [True, False])
+# 미확정 문장 이동은 정답과 무관하게 조회와 저장 및 실행 차단
+def test_move_inserted_requires_court_final_without_answer_access(env, monkeypatch, valid_answer):
+    answer = {**make_answer("c1", valid_answer), "part": 2 if valid_answer else 1, "insertedSentenceNos": [3] if valid_answer else []}
+    reads = []
+
+    # 정답 조회 호출 감시
+    def load_answers():
+        reads.append(True)
+        return {"c1": answer}
+
+    monkeypatch.setattr(store, "load_answers", load_answers)
+    monkeypatch.setattr(sys.modules["court.llm"].OllamaClient, "available", lambda self: False)
+    monkeypatch.setattr(jobs, "_ensure_worker", lambda: None)
+    before = {rel: (env.data / rel).read_bytes() for rel in ("cases/cases.jsonl", "answers/answers.jsonl")}
+    response = env.post("/api/lab/variants", json={"caseId": "c1", "attack": "move_inserted"})
+    assert response.status_code == 409
+    assert response.json() == {"detail": "문장 이동 변형은 원 사건 최종 판결 뒤에만 만들 수 있습니다 (정답 비공개)"}
+    assert reads == []
+    assert {rel: (env.data / rel).read_bytes() for rel in before} == before
+    assert not jobs.JOBS and jobs.QUEUE.empty() and not (env.data / "runs").exists()
+    assert env.get("/api/cases/c1-mv").status_code == 404
+
+
+# 법정 최종 판결 이후 문장 이동 변형 허용
+def test_move_inserted_allowed_after_court_final(env):
+    finalize_case(env, "c1", "clickbait")
+    response = env.post("/api/lab/variants", json={"caseId": "c1", "attack": "move_inserted"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["case"]["id"] == "c1-mv" and body["case"]["variantOf"] == "c1" and body["case"]["attack"] == "move_inserted"
+    assert body["jobId"] and env.get(f"/api/jobs/{body['jobId']}").status_code == 200
+    assert env.get("/api/cases/c1-mv").status_code == 200
+
+
+# 실험실 최종 판결은 문장 이동 변형 허용에서 제외
+def test_move_inserted_lab_final_does_not_unlock(env, monkeypatch):
+    sid = env.post("/api/lab/sessions", json={"condition": "A", "judge": "판사A"}).json()["id"]
+    finalize_case(env, "c1", "clickbait", session=sid)
+    monkeypatch.setattr(jobs, "_ensure_worker", lambda: None)
+    before = {rel: (env.data / rel).read_bytes() for rel in ("cases/cases.jsonl", "answers/answers.jsonl")}
+    response = env.post("/api/lab/variants", json={"caseId": "c1", "attack": "move_inserted"})
+    assert response.status_code == 409
+    assert response.json() == {"detail": "문장 이동 변형은 원 사건 최종 판결 뒤에만 만들 수 있습니다 (정답 비공개)"}
+    assert {rel: (env.data / rel).read_bytes() for rel in before} == before
+    assert not jobs.JOBS and jobs.QUEUE.empty() and not (env.data / "runs").exists()
+
+
+# 법정 최종 판결 이전 명령 주입 변형 허용
+def test_inject_command_allowed_before_court_final(env):
+    assert not any(e["type"] == "final" for e in env.get("/api/ledger?caseId=c1").json())
+    response = env.post("/api/lab/variants", json={"caseId": "c1", "attack": "inject_command"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["case"]["id"] == "c1-inj" and body["case"]["attack"] == "inject_command"
+    assert body["jobId"] and env.get(f"/api/jobs/{body['jobId']}").status_code == 200
+
+
 # 실험실 기록은 사건 단위 통계에서 제외
 def test_stats_ignore_lab_entries(env):
     sid = env.post("/api/lab/sessions", json={"condition": "A", "judge": "판사A"}).json()["id"]
@@ -108,8 +169,8 @@ def test_stats_ignore_lab_entries(env):
 # 변형 사건은 사건 통계에서 빠지고 redteam에 집계
 def test_stats_redteam_excludes_variants(env):
     env.post("/api/lab/variants", json={"caseId": "c1", "attack": "inject_command"})
-    env.post("/api/lab/variants", json={"caseId": "c3", "attack": "move_inserted"})
-    for cid, s in (("c1-inj", scr(False, 80)), ("c3-mv", scr(False, 80))):
+    env.post("/api/lab/variants", json={"caseId": "c3", "attack": "inject_command"})
+    for cid, s in (("c1-inj", scr(False, 80)), ("c3-inj", scr(False, 80))):
         (env.data / "trials" / cid).mkdir(parents=True, exist_ok=True)
         (env.data / "trials" / cid / "1.json").write_text(json.dumps(make_trial(cid, 1, s), ensure_ascii=False), encoding="utf-8")
     finalize_case(env, "c1-inj", "clickbait")
@@ -193,3 +254,76 @@ def test_agent_reliability_excludes_variants(env):
     (env.data / "trials" / "c1-inj").mkdir(parents=True, exist_ok=True)
     (env.data / "trials" / "c1-inj" / "1.json").write_text(json.dumps(trial, ensure_ascii=False), encoding="utf-8")
     assert env.get("/api/stats").json()["agents"] == {"selfCorrectionRate": None, "escalations": 0}
+
+
+# 과거 판정 키 누락 기록의 통계와 대시보드 조회
+def test_stats_tolerates_legacy_evidence_ruling_without_ruling(env):
+    first_impression(env, "c1")
+    reveal_all(env, "c1")
+    entry = {"id": "legacy", "at": "2026-01-01T00:00:00+00:00", **ledger_body("c1", "evidence_ruling", {"evidenceId": "i1-E1", "checkerWeight": 0})}
+    store.append_jsonl("ledger/ledger.jsonl", entry)
+    response = env.get("/api/stats")
+    assert response.status_code == 200
+    assert response.json()["checkerOverrides"] == {"admittedVoided": 0, "struckCounted": 0}
+    dashboard = env.get("/api/dashboard")
+    assert dashboard.status_code == 200 and dashboard.json()["kpis"]["humanOverrides"] == 0
+
+
+@pytest.mark.parametrize("instance,votes,expected", [
+    (2, ["not_clickbait", "not_clickbait"], 1),
+    (2, ["not_clickbait", "clickbait"], 0),
+    (3, ["not_clickbait", "not_clickbait", "clickbait"], 1),
+    (3, ["not_clickbait", "clickbait", "clickbait"], 0),
+])
+# 상급심 모든 판사석 완료 뒤 번복 통계 집계
+def test_overturned_waits_for_complete_panel(env, instance, votes, expected):
+    reason = "충분히 긴 판결 사유입니다"
+    appeal_case(env, "c1")
+    ensure_trial(env, "c1", 2)
+    reveal_all(env, "c1", 2)
+    if instance == 3:
+        for seat in (1, 2):
+            post_ledger(env, "c1", "seat_verdict", {"verdict": "clickbait", "confidence": 70, "reason": reason}, instance=2, seat=seat)
+        post_ledger(env, "c1", "appeal", {"reason": "상고 사유입니다"}, instance=2)
+        ensure_trial(env, "c1", 3)
+        reveal_all(env, "c1", 3)
+    for seat, verdict in enumerate(votes, start=1):
+        post_ledger(env, "c1", "seat_verdict", {"verdict": verdict, "confidence": 70, "reason": reason}, instance=instance, seat=seat)
+        count = env.get("/api/stats").json()["overturned"][f"i{instance}"]
+        assert count == (expected if seat == instance else 0)
+
+
+# 모델 미연결 변형 생성의 저장과 실행 차단
+def test_variant_requires_model_before_writing(env, monkeypatch):
+    monkeypatch.setattr(sys.modules["court.llm"].OllamaClient, "available", lambda self: False)
+    monkeypatch.setattr(jobs, "_ensure_worker", lambda: None)
+    before = {rel: (env.data / rel).read_bytes() for rel in ("cases/cases.jsonl", "answers/answers.jsonl")}
+    response = env.post("/api/lab/variants", json={"caseId": "c1", "attack": "inject_command"})
+    assert response.status_code == 503
+    assert response.json()["detail"] == jobs.model_reason(jobs.model_health())
+    assert {rel: (env.data / rel).read_bytes() for rel in before} == before
+    assert not jobs.JOBS and jobs.QUEUE.empty() and not (env.data / "runs").exists()
+    assert env.get("/api/cases/c1-inj").status_code == 404
+
+
+# 모델 미연결이어도 변형 입력 오류 우선 검증
+def test_variant_validation_precedes_model_check(env, monkeypatch):
+    monkeypatch.setattr(sys.modules["court.llm"].OllamaClient, "available", lambda self: False)
+    assert env.post("/api/lab/variants", json={"caseId": "missing", "attack": "inject_command"}).status_code == 404
+    assert env.post("/api/lab/variants", json={"caseId": "c1", "attack": "bad"}).status_code == 422
+    store.append_jsonl("cases/cases.jsonl", {**store.get_case("c1"), "id": "c1-inj", "variantOf": "c1", "attack": "inject_command"})
+    assert env.post("/api/lab/variants", json={"caseId": "c1", "attack": "inject_command"}).status_code == 409
+
+
+# 변형 도메인 오류가 모델 검사보다 우선
+def test_variant_domain_validation_precedes_model_check(env, monkeypatch):
+    finalize_case(env, "c1", "clickbait")
+    monkeypatch.setattr(sys.modules["court.llm"].OllamaClient, "available", lambda self: False)
+
+    # 변형 조건 오류 반환
+    def invalid_variant(case, answer, attack):
+        raise ValueError("변형 조건 오류")
+
+    monkeypatch.setattr(sys.modules["court.redteam"], "make_variant", invalid_variant)
+    response = env.post("/api/lab/variants", json={"caseId": "c1", "attack": "move_inserted"})
+    assert response.status_code == 422 and response.json()["detail"] == "변형 조건 오류"

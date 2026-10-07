@@ -1,6 +1,9 @@
 # 장부 검증과 단계 계산 API 테스트
+import json
+
 import pytest
-from conftest import appeal_case, ensure_trial, finalize_case, first_impression, ledger_body, post_ledger, reveal_all, rule_failed
+from app import jobs, store
+from conftest import appeal_case, ensure_trial, finalize_case, first_impression, ledger_body, make_trial, post_ledger, reveal_all, rule_failed, scr
 
 REASON = "충분히 긴 판결 사유입니다"
 
@@ -205,3 +208,55 @@ def test_upper_instance_requires_previous_appeal_for_reveal_and_seat(env):
     post_ledger(env, "c1", "seat_verdict", {"verdict": "clickbait", "confidence": 70, "reason": REASON})
     post_ledger(env, "c1", "appeal", {"reason": "항소 사유입니다"})
     assert env.post("/api/ledger", json=ledger_body("c1", "reveal", {"claimId": "i2-C1"}, instance=2)).status_code == 200
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "error", "cancelled", "interrupted", "done"])
+# 부분 기록의 판결과 정답 공개 차단
+def test_partial_trial_cannot_unlock_verdict_or_answer(env, monkeypatch, status):
+    first_impression(env, "c4")
+    partial = make_trial("c4", 1, scr(True, 80), ("fabricated",))
+    live = {"status": status, "partial": partial}
+    monkeypatch.setattr(jobs, "latest", lambda case_id, instance: live)
+    post_ledger(env, "c4", "reveal", {"claimId": "i1-C1"})
+    post_ledger(env, "c4", "evidence_ruling", {"evidenceId": "i1-E0", "ruling": "struck", "checkerWeight": 0})
+    verdict = {"verdict": "clickbait", "confidence": 70, "reason": REASON}
+    assert env.post("/api/ledger", json=ledger_body("c4", "seat_verdict", verdict)).status_code == 422
+    assert env.post("/api/ledger", json=ledger_body("c4", "appeal", {"reason": "항소 사유입니다"})).status_code == 422
+    final = {"verdict": "clickbait", "action": "L1", "reason": REASON, "votes": [{"seat": 1, "verdict": "clickbait"}]}
+    assert env.post("/api/ledger", json=ledger_body("c4", "final", final)).status_code == 422
+    assert env.get("/api/cases/c4/answer").status_code == 403
+    assert env.get("/api/records/c4").json()["answer"] is None
+    store.save_trial("c4", 1, partial)
+    saved = env.post("/api/ledger", json=ledger_body("c4", "seat_verdict", verdict))
+    assert saved.status_code == (422 if status in ("queued", "running") else 200)
+
+
+# 근거 판정 키 필수와 명시적 초기화 허용
+def test_evidence_ruling_requires_ruling_key(env):
+    first_impression(env, "c1")
+    reveal_all(env, "c1")
+    before = env.get("/api/ledger").json()
+    data = {"evidenceId": "i1-E1", "checkerWeight": 0}
+    missing = env.post("/api/ledger", json=ledger_body("c1", "evidence_ruling", data))
+    assert missing.status_code == 422 and "ruling" in missing.json()["detail"]
+    assert env.get("/api/ledger").json() == before
+    post_ledger(env, "c1", "evidence_ruling", {**data, "ruling": None})
+
+
+@pytest.mark.parametrize("field", ["checkerWeight", "pro", "con", "tilt"])
+@pytest.mark.parametrize("number", ["1e309", "-1e309", "NaN"])
+# 무한대와 NaN 장부 값의 저장 차단
+def test_ledger_rejects_nonfinite_numbers(env, field, number):
+    if field == "checkerWeight":
+        first_impression(env, "c1")
+        reveal_all(env, "c1")
+        body = ledger_body("c1", "evidence_ruling", {"evidenceId": "i1-E1", "ruling": "struck", "checkerWeight": "NONFINITE"})
+    else:
+        body = ledger_body("c1", "first_impression", {"leaning": "clickbait", "confidence": 70})
+        body["context"]["balance"] = {"pro": 0, "con": 0, "tilt": 0, field: "NONFINITE"}
+    before = env.get("/api/ledger").json()
+    response = env.post("/api/ledger", content=json.dumps(body).replace('"NONFINITE"', number), headers={"Content-Type": "application/json"})
+    assert response.status_code == 422
+    assert env.get("/api/ledger").json() == before
+    assert env.get("/api/stats").status_code == 200
+    assert env.get("/api/dashboard").status_code == 200

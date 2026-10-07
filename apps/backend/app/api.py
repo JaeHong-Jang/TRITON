@@ -151,6 +151,10 @@ def create_intake(body: IntakeIn | None = None) -> dict:
             raise HTTPException(404, "사건을 찾을 수 없습니다")
     else:
         cases = [c for c in store.load_cases() if not store.load_intake(c["id"])]
+    try:
+        jobs.require_model()
+    except jobs.ModelUnavailableError as e:
+        raise HTTPException(503, str(e))
     return {"jobId": jobs.enqueue_intake(cases)}
 
 
@@ -299,6 +303,8 @@ def get_session(session_id: str):
 @router.post("/lab/variants")
 def create_variant(body: VariantIn):
     case = _case_or_404(body.caseId)
+    if body.attack == "move_inserted" and not _is_final(body.caseId):
+        raise HTTPException(409, "문장 이동 변형은 원 사건 최종 판결 뒤에만 만들 수 있습니다 (정답 비공개)")
     answer = store.load_answers().get(body.caseId)
     if not answer:
         raise HTTPException(404, "정답이 없어 변형을 만들 수 없습니다")
@@ -306,6 +312,12 @@ def create_variant(body: VariantIn):
         variant, variant_answer = store.court("redteam").make_variant(case, answer, body.attack)
     except ValueError as e:
         raise HTTPException(422, str(e))
+    if store.get_case(variant["id"]):
+        raise HTTPException(409, "이미 같은 변형 사건이 있습니다")
+    try:
+        jobs.require_model()
+    except jobs.ModelUnavailableError as e:
+        raise HTTPException(503, str(e))
     with store.LOCK:
         if store.get_case(variant["id"]):
             raise HTTPException(409, "이미 같은 변형 사건이 있습니다")

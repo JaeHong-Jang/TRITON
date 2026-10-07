@@ -163,18 +163,32 @@ class CachedClient:
         self.inner, self.job, self.attempt, self.started = inner, job, attempt, started
         self.model = inner.model
         self.options = getattr(inner, "options", {})
+        self.requests = {}
 
-    # 동일 입력의 완료 응답 재사용
+    # 동일 입력의 응답과 파싱 실패 순차 재생
     def chat_json(self, system, user, schema):
         prompt = {"system": system, "user": user, "schema": schema}
         key = json.dumps(prompt, ensure_ascii=False, sort_keys=True)
         with STATE_LOCK:
             _ensure_live(self.job, self.attempt, self.started)
             _ensure_versions(self.job)
-            cached = next((c for c in self.job["_checkpoints"] if c["key"] == key and c["status"] == "complete"), None)
+            index = self.requests.get(key, 0)
+            self.requests[key] = index + 1
+            checkpoints = [c for c in self.job["_checkpoints"] if c["key"] == key and c["status"] in ("complete", "invalid")]
+            cached = checkpoints[index] if index < len(checkpoints) else None
         if cached:
+            if cached["status"] == "invalid":
+                raise ValueError(cached.get("error", "저장된 모델 응답을 해석하지 못했습니다"))
             return copy.deepcopy(cached["reply"]), {**copy.deepcopy(cached["meta"]), "cached": True}
-        reply, meta = self.inner.chat_json(system, user, schema)
+        try:
+            reply, meta = self.inner.chat_json(system, user, schema)
+        except (ValueError, KeyError) as e:
+            with STATE_LOCK:
+                _ensure_live(self.job, self.attempt, self.started)
+                _ensure_versions(self.job)
+                self.job["_checkpoints"].append({"key": key, "input": copy.deepcopy(prompt), "status": "invalid", "error": str(e)})
+                _save(self.job)
+            raise
         with STATE_LOCK:
             _ensure_live(self.job, self.attempt, self.started)
             _ensure_versions(self.job)
@@ -308,9 +322,11 @@ def _run(job: dict, queued_attempt: int) -> None:
                 _ensure_live(job, attempt, started)
                 _ensure_versions(job)
                 existing = store.load_trial(job["caseId"], job["instance"])
-                if existing and existing.get("execution", {}).get("runId") != job["id"]:
-                    raise ValueError("이미 다른 실행의 재판 기록이 있습니다")
-                store.save_trial(job["caseId"], job["instance"], record)
+                if existing is not None:
+                    if existing.get("execution", {}).get("runId") != job["id"]:
+                        raise ValueError("이미 다른 실행의 재판 기록이 있습니다")
+                else:
+                    store.save_trial(job["caseId"], job["instance"], record)
                 job.update(status="done", step="완료", updatedAt=_now())
                 _save(job)
             return
@@ -336,7 +352,11 @@ def _run_intake(job: dict, client, on_event, attempt: int, started: float) -> No
                 store.write_json(f"intake/{doc['caseId']}.json", doc)
                 _save(job)
 
-        kwargs = {"on_event": on_event}
+        # 사건 식별자를 고정한 접수 이벤트 보고
+        def case_event(event: dict, partial: dict | None, role: str | None = None, case_id: str = case["id"]) -> None:
+            on_event({**event, "caseId": case_id}, partial, role)
+
+        kwargs = {"on_event": case_event}
         if "save_result" in inspect.signature(run_case).parameters:
             kwargs["save_result"] = save_result
         elif "should_save" in inspect.signature(run_case).parameters:
@@ -378,16 +398,16 @@ def _ensure_worker() -> None:
 
 
 # 저장 실행 조회
-def _matching_saved(same) -> dict | None:
+def _matching_saved(kind: str, same) -> dict | None:
     runs = [_job_from_run(r) for r in run_store.all_runs() if r]
-    matches = [j for j in runs if same(j)]
+    matches = [j for j in runs if j["_kind"] == kind and same(j)]
     return max(matches, key=lambda j: (j.get("updatedAt") or "", j.get("createdAt") or "", j.get("id") or "")) if matches else None
 
 
 # 작업 등록
 def _enqueue(job: dict, same) -> str:
     with STATE_LOCK:
-        existing = next((j for j in JOBS.values() if j["_kind"] == job["_kind"] and same(j)), None) or _matching_saved(same)
+        existing = next((j for j in JOBS.values() if j["_kind"] == job["_kind"] and same(j)), None) or _matching_saved(job["_kind"], same)
         if existing:
             JOBS[existing["id"]] = existing
             return existing["id"]
@@ -456,6 +476,8 @@ def enqueue_intake(cases: list[dict]) -> str:
 def _retry_reason(job: dict) -> str:
     if job["status"] not in ("error", "interrupted", "cancelled"):
         return "이미 실행 중입니다" if job["status"] in ("queued", "running") else "재시도할 수 없는 작업 상태입니다"
+    if job["_kind"] == "trial" and store.load_trial(job["caseId"], job["instance"]) is not None:
+        return "이미 저장된 재판 기록이 있어 재시도할 수 없습니다"
     if job.get("graphVersion") != workflow.VERSION:
         return "실행 그래프 버전이 달라 재시도할 수 없습니다"
     if job.get("_versions") != _versions():
@@ -543,10 +565,15 @@ def cancel_reason(status: str) -> str:
 # 저장 실행 복구
 def recover() -> None:
     with STATE_LOCK:
-        for run in run_store.recover_interrupted():
-            trial = store.load_trial(run["caseId"], run["instance"]) if run.get("caseId") and run.get("instance") else None
-            if trial and trial.get("execution", {}).get("runId") == run["id"]:
+        interrupted = {run["id"] for run in run_store.recover_interrupted()}
+        for run in run_store.all_runs():
+            if not run or run.get("status") == "done":
+                continue
+            trial = store.load_trial(run["caseId"], run["instance"]) if run.get("kind", "trial") == "trial" and run.get("caseId") and run.get("instance") else None
+            reconciled = bool(trial and trial.get("execution", {}).get("runId") == run["id"])
+            if reconciled:
                 run["status"] = "done"
                 run["step"] = "완료"
                 run_store.save(run)
-            JOBS[run["id"]] = _job_from_run(run)
+            if reconciled or run["id"] in interrupted:
+                JOBS[run["id"]] = _job_from_run(run)

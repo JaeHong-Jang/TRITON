@@ -135,3 +135,18 @@ def test_register_article_keeps_internal_metadata_out_of_trial_snapshot(env, mon
     snapshot = jobs.JOBS[res.json()["jobId"]]["_case"]
     assert snapshot == case
     assert "requestId" not in json.dumps(snapshot, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\u0085", "\x0b", "\x0c"])
+# 유니코드 구분 문자가 포함된 기사 등록 왕복
+def test_register_article_round_trips_unicode_line_separators(env, separator):
+    text = f"앞 문장{separator}뒤 문장\n둘째 줄"
+    case = register(env, text=text)
+    assert case["sentences"] == [{"no": 1, "text": f"앞 문장{separator}뒤 문장"}, {"no": 2, "text": "둘째 줄"}]
+    assert env.get(f"/api/cases/{case['id']}").json() == case
+    assert env.post("/api/cases", json=body(text=text)).json() == case
+    register(env, request_id="22222222-2222-4222-8222-222222222222", text="추가 기사 본문")
+    rows = env.get("/api/cases")
+    assert rows.status_code == 200
+    assert case["id"] in [row["id"] for row in rows.json()]
+    assert env.get(f"/api/cases/{case['id']}").json() == case

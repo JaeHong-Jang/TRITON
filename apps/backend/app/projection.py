@@ -63,8 +63,10 @@ def trials(records: list[dict], case_id: str, lab_session_id: str | None = None)
 def job(raw: dict, lab_session_id: str | None = None) -> dict:
     out = copy.deepcopy(raw)
     case_id = out.get("caseId", "")
-    if case_id and disclosure(case_id, lab_session_id) == "hidden":
-        out["events"] = []
+    hidden = bool(case_id) and disclosure(case_id, lab_session_id) == "hidden"
+    opened = {cid: disclosure(cid, lab_session_id) == "open" for cid in {e["caseId"] for e in out.get("events", []) if e.get("caseId")}}
+    out["events"] = [e for e in out.get("events", []) if (opened[e["caseId"]] if e.get("caseId") else not hidden)]
+    if hidden:
         out["partial"] = trial(out.get("partial"), case_id, lab_session_id)
         out["step"] = {"queued": "준비 대기", "running": "재판 준비 중", "done": "준비 완료", "error": "작업 오류", "interrupted": "실행 중단", "cancelled": "취소됨"}.get(out.get("status"), "재판 준비")
         out["done"] = 0

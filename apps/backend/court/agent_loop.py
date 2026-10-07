@@ -182,6 +182,11 @@ def _failing(checked):
     return sum(sum(_count_bad(group).values()) for group in checked)
 
 
+# 검증을 통과한 근거의 식별 정보 목록
+def _verified(checked):
+    return [(e["kind"], e["sentenceNo"], e["quote"], e["keyword"]) for group in checked for e in group if e["status"] == "verified"]
+
+
 # 되돌린 근거와 실제 원문을 적은 수정 지시 본문
 def _feedback(session, tidy, checked):
     by_no = {s["no"]: s["text"] for s in session.case["sentences"]}
@@ -230,6 +235,7 @@ def _loop(s, agent, role, read_text, plan_system, plan_schema, plan_tidy, tools,
     s.emit(aid, "draft", f"초안 {len(tidy)}건 작성", public="초안 작성", reason="complete")
     checked = s.check(tidy, aid)
     first_failed = _failing(checked)
+    first_verified = set(_verified(checked))
     best = (tidy, checked)
     rewrites = 0
     for number in range(1, MAX_REVISIONS + 1):
@@ -249,7 +255,8 @@ def _loop(s, agent, role, read_text, plan_system, plan_schema, plan_tidy, tools,
     stat = s.stat(aid)
     stat["revisions"] += rewrites
     stat["firstFailed"] = stat.get("firstFailed", 0) + first_failed
-    stat["fixed"] = stat.get("fixed", 0) + max(0, first_failed - _failing(best[1]))
+    new_verified = sum(e not in first_verified for e in _verified(best[1]))
+    stat["fixed"] = stat.get("fixed", 0) + max(0, min(first_failed - _failing(best[1]), new_verified))
     stat["seconds"] = round(stat["seconds"] + time.time() - started, 2)
     return (*best, rewrites)
 
