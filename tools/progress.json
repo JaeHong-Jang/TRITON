@@ -616,6 +616,13 @@
           "owner": "backend",
           "status": "verified",
           "verify": "./tools/checks/verify.sh --ui (실제 A.X 1→3심 화면 흐름 통과, 백엔드 306·프론트 151·타입/빌드/하네스, 격리 서버에서 미확정 409·확정 통과·데이터 불변, 실험실 화면 차단 사유 표시와 요청 0건 실측)"
+        },
+        {
+          "id": "P17.3",
+          "title": "QA 2차 백엔드 결함 수정 (실험실 정답 누출·장부 입력 검증·한국어 오류·지표 정의·실행 비용·에이전트 출력 정리)",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "./tools/checks/verify.sh --ui (실제 A.X 1→3심·모바일 통과, 백엔드 452·프론트 151·타입/빌드/하네스, 격리 서버 QA 재현 20/20, 실제 A.X 전후 품질 비교 docs/experiments/findings.md #12~14)"
         }
       ]
     }
