@@ -2,10 +2,12 @@
 import json
 import os
 import random
+import sys
 from pathlib import Path
 
 import pytest
 
+from court import cases as cases_cli
 from court.cases import build, clean, convert, sample_files
 
 
@@ -105,6 +107,91 @@ def test_build_numbers_cases_and_keeps_answers_aligned(tmp_path):
     assert [c["id"] for c in cases] == ["case-0001", "case-0002", "case-0003", "case-0004"]
     assert [a["id"] for a in answers] == [c["id"] for c in cases]
     assert sorted(a["isClickbait"] for a in answers) == [False, False, True, True]
+
+
+# 합성 사건·정답과 재생성 CLI 설정
+@pytest.fixture
+def regeneration(tmp_path, monkeypatch):
+    case, answer = convert(label_file(1, 0), "case-0001")
+    cases, answers = [case], [answer]
+    cases_path = tmp_path / "cases" / "cases.jsonl"
+    answers_path = tmp_path / "answers" / "answers.jsonl"
+    cases_cli.write_jsonl(cases_path, cases)
+    cases_cli.write_jsonl(answers_path, answers)
+    monkeypatch.setattr(cases_cli, "build", lambda *args: (cases, answers))
+    monkeypatch.setattr(sys, "argv", ["court.cases", "--data-root", "unused", "--out-dir", str(cases_path.parent),
+                                     "--answers-out", str(answers_path)])
+    return (cases_path, answers_path), cases, answers
+
+
+# 기존 사건·정답 변경 거부와 두 파일 보존 확인
+@pytest.mark.parametrize("target", ["cases", "answers"])
+def test_regeneration_refuses_changed_rows_without_writing(regeneration, target):
+    paths, cases, answers = regeneration
+    before = [path.read_bytes() for path in paths]
+    if target == "cases":
+        cases[0]["title"] = "다른 합성 기사"
+    else:
+        answers[0]["sourceId"] = "다른 합성 원문 ID"
+    cases.append({**cases[0], "id": "case-0002"})
+    answers.append({**answers[0], "id": "case-0002"})
+    with pytest.raises(SystemExit) as exc:
+        cases_cli.main()
+    assert exc.value.code != 0
+    assert "case-0001" in str(exc.value)
+    assert "새 데이터 폴더" in str(exc.value)
+    assert [path.read_bytes() for path in paths] == before
+
+
+# 기존 변형 사건·정답 삭제 거부 확인
+@pytest.mark.parametrize("target", ["cases", "answers"])
+@pytest.mark.parametrize("suffix", ["mv", "inj"])
+def test_regeneration_refuses_dropped_variant(regeneration, target, suffix):
+    paths, cases, answers = regeneration
+    path, rows = (paths[0], cases) if target == "cases" else (paths[1], answers)
+    variant_id = f"case-0001-{suffix}"
+    cases_cli.write_jsonl(path, [*rows, {**rows[0], "id": variant_id}])
+    before = [path.read_bytes() for path in paths]
+    with pytest.raises(SystemExit, match=variant_id):
+        cases_cli.main()
+    assert [path.read_bytes() for path in paths] == before
+
+
+# 동일한 행의 재생성 허용 확인
+def test_regeneration_allows_identical_rows(regeneration):
+    paths, cases, answers = regeneration
+    for path, rows in zip(paths, (cases, answers)):
+        path.write_text(json.dumps(dict(reversed(list(rows[0].items())))) + "\n", encoding="utf-8")
+    cases_cli.main()
+    assert [json.loads(paths[0].read_text(encoding="utf-8"))] == cases
+    assert [json.loads(paths[1].read_text(encoding="utf-8"))] == answers
+
+
+# 빈 대상과 없는 대상의 사건 생성 허용 확인
+@pytest.mark.parametrize("existing", ["empty", "missing"])
+def test_regeneration_allows_empty_or_missing_targets(regeneration, existing):
+    paths, cases, answers = regeneration
+    for path in paths:
+        if existing == "empty":
+            path.write_text("", encoding="utf-8")
+        else:
+            path.unlink()
+    cases_cli.main()
+    assert [json.loads(paths[0].read_text(encoding="utf-8"))] == cases
+    assert [json.loads(paths[1].read_text(encoding="utf-8"))] == answers
+
+
+# 재생성 거부 메시지의 영향 ID 수 제한 확인
+def test_regeneration_reports_at_most_five_affected_ids(regeneration):
+    paths, _, _ = regeneration
+    cases_cli.write_jsonl(paths[0], [{"id": f"case-{i:04d}"} for i in range(1, 7)])
+    before = [path.read_bytes() for path in paths]
+    with pytest.raises(SystemExit) as exc:
+        cases_cli.main()
+    for i in range(1, 6):
+        assert f"case-{i:04d}" in str(exc.value)
+    assert "case-0006" not in str(exc.value)
+    assert [path.read_bytes() for path in paths] == before
 
 
 # 실제 Validation 표본 변환 확인

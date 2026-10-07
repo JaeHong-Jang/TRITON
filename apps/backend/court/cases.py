@@ -86,6 +86,24 @@ def write_jsonl(path, rows):
     path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
 
 
+# 기존 사건·정답 ID의 내용 변경과 삭제 검사
+def check_regeneration(targets):
+    affected = set()
+    for path, rows in targets:
+        if not path.exists():
+            continue
+        new_rows = {row["id"]: row for row in rows}
+        for line in path.read_text(encoding="utf-8").split("\n"):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if new_rows.get(row["id"]) != row:
+                affected.add(row["id"])
+    if affected:
+        raise SystemExit(f"사건 재생성 거부: 기존 ID의 내용 변경 또는 삭제 ({', '.join(sorted(affected)[:5])}). "
+                         "새 데이터 폴더를 사용하세요 (TRITON_DATA_DIR / --out-dir / --answers-out).")
+
+
 # 사건 생성 CLI 진입점
 def main():
     ap = argparse.ArgumentParser(description="AI-Hub 낚시성 기사 → cases.jsonl + answers.jsonl")
@@ -99,6 +117,7 @@ def main():
 
     cases, answers = build(args.data_root, args.split, args.per_folder, args.seed)
     cases_path, answers_path = Path(args.out_dir) / "cases.jsonl", Path(args.answers_out)
+    check_regeneration(((cases_path, cases), (answers_path, answers)))
     write_jsonl(cases_path, cases)
     write_jsonl(answers_path, answers)
     print(f"{len(cases)} cases -> {cases_path} (answers kept apart in {answers_path})")
