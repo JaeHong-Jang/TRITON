@@ -40,10 +40,6 @@
 .court-file-heading h2 { font-family: var(--font-sans); font-size: 18px; font-weight: 700; }
 .court-file-heading span { font-size: 10px; color: #827263; }
 .court-case-file > section { border-radius: 6px; box-shadow: none; }
-.court-case-file #sec-now { padding: 16px; border: 1px solid #cbbb9f; border-left: 3px solid #9a7742; background: #eee6d7; }
-.court-case-file #sec-now > div > p:first-child { font-size: 10px; color: #765c39; }
-.court-case-file #sec-now > div > p:nth-child(2) { margin-top: 7px; font-size: 17px; font-weight: 700; }
-.court-case-file #sec-now > div > p:nth-child(3) { line-height: 1.7; font-size: 12px; }
 .court-case-file section[aria-label="기사 원문"] { padding: 17px 0; border-width: 1px 0; border-color: var(--court-line); background: transparent; }
 .court-case-file section[aria-label="실행 그래프"] { padding: 14px; background: #f1ece3; border-color: #dfd5c7; }
 .court-case-file section[aria-label="실행 그래프"] > div > div > p:nth-of-type(2) { display: none; }

@@ -58,6 +58,7 @@ describe('석조 법정의 공개 경계', () => {
     expect(open).toContain('찬성 2')
     expect(open).toContain('반대 0')
     expect(open).toContain('기사의 판결을 뜻하지 않습니다')
+    expect(open).not.toMatch(/<details open[^>]*evidenceStrip/)
     expect(renderToStaticMarkup(<CourtStage view={scene(true)} speakingClaim={null} activity={[]} currentSeat={null} />)).not.toContain('기사의 판결을 뜻하지 않습니다')
   })
 

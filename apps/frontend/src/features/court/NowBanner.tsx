@@ -48,11 +48,11 @@ export function NowBanner() {
   const pending = v.pendingRulings
   const n = narrate(v.state, v.records, ont, started)
   return (
-    <section id="sec-now" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4">
+    <section id="sec-now" className="tribunal-panel tribunal-kpi rounded-lg border border-stone-200 bg-white">
       <div aria-live="polite">
-        <p className="text-xs font-bold tracking-wide text-amber-900">지금 일어나는 일</p>
-        <p className="mt-1 text-lg font-black leading-snug">{n.title}</p>
-        {n.detail ? <p className="mt-1 text-sm text-stone-700">{n.detail}</p> : null}
+        <p className="flex items-center gap-2 text-xs font-bold text-stone-600"><span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden />지금 일어나는 일</p>
+        <p className="mt-2 text-[17px] font-bold leading-snug text-stone-900">{n.title}</p>
+        {n.detail ? <p className="mt-1 text-[12.5px] leading-relaxed text-stone-600">{n.detail}</p> : null}
       </div>
       {pending.length && v.canRule ? (
         <div className="mt-2 flex flex-wrap items-center gap-2" aria-label="판정할 근거">

@@ -258,7 +258,7 @@ function EvidenceStrip({ weights, focusId, settled, onPick }: { weights: WeightI
   const grouped = groupedWeights(weights)
 
   return (
-    <details open className="trad-court__evidenceStrip" data-scene="traditional-court-evidence" aria-label="공개 근거 선택">
+    <details className="trad-court__evidenceStrip" data-scene="traditional-court-evidence" aria-label="공개 근거 선택">
       <summary>공개된 근거 {weights.length}개</summary>
       {weights.length ? (
         <div className="trad-court__evidencePanel">
