@@ -173,8 +173,8 @@ export function OntologyGraph({ ont }: { ont: Ontology }) {
             <p className="mt-2 leading-relaxed text-stone-700">위에서 아래로 읽습니다. 입장이 주장 유형을 낳고, 주장은 코드로 검증 가능한 근거를 내며, 검증 결과에 따라 천칭에 얹히는 무게가 정해집니다. 노드를 누르거나 마우스를 올리면 이어진 선이 강조되고 정의가 여기에 나옵니다.</p>
             </div>
             <ul className="space-y-1.5 text-[13px] text-stone-700">
-              <li><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm bg-pro" />주황 · 찬성(낚시성이다)</li>
-              <li><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm bg-con" />파랑 · 반대(낚시성 아니다)</li>
+              <li><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm bg-pro" />진한 빨강 · 찬성(낚시성이다)</li>
+              <li><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm bg-con" />남색 · 반대(낚시성 아니다)</li>
               <li><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm bg-slate-400" />회색 점선 · 파생(반박)</li>
             </ul>
           </div>

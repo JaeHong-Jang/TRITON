@@ -1,6 +1,8 @@
 // 규칙과 온톨로지 화면
+import { useState } from 'react'
 import { Link } from 'react-router'
 import { api } from '../api/client'
+import type { Policy } from '../api/types'
 import { BTN, PageFrame, Panel } from '../console/parts'
 import { ExecutionGraph } from '../features/execution/ExecutionGraph'
 import { OntologyGraph } from '../features/ontology/OntologyGraph'
@@ -14,7 +16,9 @@ import { useAsync } from '../ui/useAsync'
 export default function RulesPage() {
   const ont = useOntology((s) => s.ont)
   const { data: workflow } = useAsync(() => api.workflow(), [])
-  const { data: policy } = useAsync(() => api.policy(), [])
+  const { data: loaded } = useAsync(() => api.policy(), [])
+  const [savedPolicy, setSavedPolicy] = useState<Policy | null>(null)
+  const policy = savedPolicy ?? loaded
   return (
     <PageFrame actions={<Link className={BTN} to="/agents?view=ontology">온톨로지 관제 보기 ↗</Link>} title="규칙 · 온톨로지" sub="AI가 어떤 주장을 어떤 근거로 펼 수 있는지, 그 근거가 얼마나 무겁게 쳐지는지, 어디까지 AI가 혼자 결정하는지 정해 둔 규칙입니다.">
       {policy && !policy.summaryEnabled ? (
@@ -27,7 +31,7 @@ export default function RulesPage() {
         {ont ? <OntologyGraph ont={ont} /> : <Loading />}
       </Panel>
       <div className="grid items-start gap-5 min-[1000px]:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-        <PolicyCard />
+        <PolicyCard onSaved={setSavedPolicy} />
         <SkillsTable />
       </div>
     </PageFrame>

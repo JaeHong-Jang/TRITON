@@ -48,6 +48,8 @@ body {
   background: #f6f2ea;
   color: #302923;
   overflow-x: hidden;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 button:disabled {

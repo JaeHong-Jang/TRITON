@@ -1,6 +1,6 @@
 // 작은 라벨 배지 모음
 import type { ReactNode } from 'react'
-import type { EvidenceStatus } from '../api/types'
+import type { EvidenceKind, EvidenceStatus } from '../api/types'
 import { statusLabel, useOntology } from './ontology'
 
 const TONES = {
@@ -27,8 +27,11 @@ export function Badge({ tone = 'gray', children, title }: { tone?: Tone; childre
 const STATUS_TONE: Record<EvidenceStatus, Tone> = { verified: 'green', misnumbered: 'amber', title: 'gray', present: 'gray', fabricated: 'red' }
 
 // 근거 검증 상태 배지
-export function StatusBadge({ status }: { status: EvidenceStatus }) {
+export function StatusBadge({ status, kind }: { status: EvidenceStatus; kind?: EvidenceKind }) {
   const ont = useOntology((s) => s.ont)
+  if (status === 'verified') {
+    return <Badge tone="green" title="코드가 원문과 대조한 결과입니다 · 주장이 맞는지는 판사가 판단합니다">{kind === 'absence' ? '핵심어 부재 확인' : '인용 원문 일치'}</Badge>
+  }
   return <Badge tone={STATUS_TONE[status]}>{statusLabel(ont, status)}</Badge>
 }
 

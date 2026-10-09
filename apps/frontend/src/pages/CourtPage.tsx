@@ -12,7 +12,6 @@ import { useAutoReveal } from '../features/court/useAutoReveal'
 import { evidenceText, useCourtView } from '../features/court/view'
 import { ExecutionGraph } from '../features/execution/ExecutionGraph'
 import CourtStage from '../scene2d/CourtStage'
-import { fmtWeight } from '../lib/scale'
 import { ErrorNote, Loading } from '../ui/Feedback'
 
 // 화면 폭이 모바일(768px 미만)인지 알려 주는 훅
@@ -61,11 +60,7 @@ function SceneHost({ mini = false }: { mini?: boolean }) {
         ) : null}
       </div>
       <div className="court-scene-footer">
-        <p className="court-evidence-summary" aria-label="근거 가중치 합계">
-          {v.hidden ? '첫인상을 기록하면 AI 변론과 근거가 공개됩니다.' : (
-            <><span>근거 가중치</span><b>찬성 {fmtWeight(v.balance.pro)}</b><b>반대 {fmtWeight(v.balance.con)}</b><span>기사의 판결을 뜻하지 않습니다.</span></>
-          )}
-        </p>
+        {v.hidden ? <p className="court-evidence-summary" aria-label="근거 공개 안내">첫인상을 기록하면 AI 변론과 근거가 공개됩니다.</p> : null}
         {!mini && !v.hidden && v.focusEvidence ? <p className="court-selected-evidence" aria-label="선택한 근거">{evidenceText(v.focusEvidence)}{v.focusEvidence.status === 'misnumbered' && v.focusEvidence.foundIn ? ` · 실제 원문 #${v.focusEvidence.foundIn}` : ''}</p> : null}
       </div>
     </div>
@@ -94,12 +89,11 @@ export default function CourtPage() {
 
   if (loading && !v) return <Loading text="법정을 여는 중입니다…" />
   if (!v) return <ErrorNote message={error ?? '사건을 불러오지 못했습니다'} onRetry={() => open(caseId)} />
-  const judging = v.live && (v.phase === 'seats' || v.phase === 'decision')
   return (
     <div className="court-domain-page flex min-h-full min-w-0 flex-col lg:h-full">
       <div className="court-domain-heading">
         <h2 title={v.caseData.title}>{v.caseData.title}</h2>
-        <p className="court-judge-question"><span>판단할 질문</span> 이 기사의 제목이 본문 내용을 제대로 반영하나요?</p>
+        <p className="court-judge-question"><span>판단할 질문</span> 이 기사는 낚시성인가요? (제목이 본문 내용과 다른가요)</p>
         <div className="court-procedure-nav">
           <InstanceStepper />
           <StepIndicator phase={v.live ? v.phase : 'final'} />
@@ -117,7 +111,7 @@ export default function CourtPage() {
           <ExecutionGraph view={v.execution} workflow={v.workflow} mock={import.meta.env.VITE_MOCK === '1'} compact busy={v.controlBusy} onRetry={() => void retryJob()} onCancel={() => void cancelJob()} />
           {v.viewInstance === 3 ? <OfficerCard /> : null}
           {v.mockManual ? null : <ClaimsPanel />}
-          {v.mockManual ? null : <div className={judging ? 'lg:sticky lg:bottom-0 lg:z-10 lg:-mx-3 lg:shrink-0 lg:max-h-[58vh] lg:overflow-y-auto lg:border-t lg:border-stone-200 lg:bg-stone-50 lg:px-3 lg:pb-3 lg:pt-2 lg:shadow-[0_-8px_10px_-10px_rgba(0,0,0,0.2)]' : undefined}><VerdictSection /></div>}
+          {v.mockManual ? null : <VerdictSection />}
         </aside>
       </div>
     </div>

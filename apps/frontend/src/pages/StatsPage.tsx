@@ -13,7 +13,7 @@ function Tile({ label, value, note }: { label: string; value: ReactNode; note?: 
   return (
     <div className="min-w-0 rounded-xl border border-stone-300 bg-white p-3">
       <p className="text-xs font-semibold text-stone-600">{label}</p>
-      <p className={`mt-1 break-keep font-black tabular-nums ${typeof value === 'string' && value.startsWith('아직 표본') ? 'text-base text-stone-600' : 'text-2xl'}`}>{value}</p>
+      <p className={`mt-1 break-keep font-black tabular-nums ${typeof value === 'string' && value.startsWith('표본 부족') ? 'text-base text-stone-600' : 'text-2xl'}`}>{value}</p>
       {note ? <p className="mt-0.5 text-xs leading-snug text-stone-600">{note}</p> : null}
     </div>
   )
@@ -44,7 +44,7 @@ function BarList({ title, rows, legend }: { title: string; rows: BarRow[]; legen
           <li key={r.label} className="text-sm">
             <div className="flex items-baseline justify-between gap-3">
               <span className="min-w-0 truncate" title={r.label}>{r.label}</span>
-              <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-stone-600">{r.text}</span>
+              <span className="max-w-[70%] shrink-0 text-right text-xs tabular-nums text-stone-600">{r.text}</span>
             </div>
             <span className="mt-1 block h-2.5 overflow-hidden rounded bg-stone-100"><span className={`block h-full rounded ${r.color}`} style={{ width: `${(r.value / max) * 100}%` }} /></span>
           </li>
@@ -76,25 +76,26 @@ export default function StatsPage() {
   const { data: s, error, loading, reload } = useAsync(() => api.stats(), [])
   if (loading && !s) return <Loading />
   if (error || !s) return <ErrorNote message={error ?? '불러오지 못했습니다'} onRetry={reload} />
-  // 비율 문자열 계산 (표본이 적으면 숨김)
-  const ratio = (a: number, b: number) => (b < MIN_N ? `아직 표본이 적어요 (${b}건)` : pct(a / b))
+  // 비율 문자열 계산 (표본이 적으면 건수 표기로 대체)
+  const ratio = (a: number, b: number, what = '정답 공개') => (b < MIN_N ? `표본 부족 · ${what} ${b}건 중 ${a}건 일치` : pct(a / b))
+  const small = (b: number) => b < MIN_N
   return (
     <PageShell>
       <PageTitle title="통계실" sub="재판 기록과 장부로 AI와 판사의 신뢰도를 집계합니다. 정답은 최종 판결이 난 사건만 반영됩니다." />
       <TileGroup title="사건과 판결">
-        <Tile label="사건" value={s.cases} note={`약식 ${s.docket.summary} · 회부 ${s.docket.trial}`} />
+        <Tile label="사건" value={s.cases} note={`약식 ${s.docket.summary} · 회부 ${s.docket.trial}${s.redteam.variants ? ` · 실험 변형 ${s.redteam.variants}건 제외` : ''}`} />
         <Tile label="최종 판결" value={s.finals} />
         <Tile label="항소" value={s.appeals.i1 + s.appeals.i2} note={`1→2심 ${s.appeals.i1} · 2→3심 ${s.appeals.i2}`} />
         <Tile label="상급심 뒤집힘" value={s.overturned.i2 + s.overturned.i3} note={`2심 ${s.overturned.i2} · 3심 ${s.overturned.i3}`} />
       </TileGroup>
       <TileGroup title="신뢰도">
-        <Tile label="AI 서기 정확도" value={ratio(s.screening.correct, s.screening.total)} note={`${s.screening.correct}/${s.screening.total} · 판결과 일치 ${s.screening.agreeWithFinal}건`} />
-        <Tile label="판결 정확도" value={ratio(s.judges.correct, s.judges.total)} note={`${s.judges.correct}/${s.judges.total}`} />
-        <Tile label="판사석 일치율" value={ratio(s.seatAgreement.agree, s.seatAgreement.total)} note={`${s.seatAgreement.agree}/${s.seatAgreement.total}`} />
-        <Tile label="첫인상 → 판결 확신 변화" value={s.confidenceShift.mean === null || s.confidenceShift.n < MIN_N ? `아직 표본이 적어요 (${s.confidenceShift.n}건)` : `${s.confidenceShift.mean > 0 ? '+' : ''}${s.confidenceShift.mean.toFixed(1)}점`} note={`낚시성 방향 평균 · ${s.confidenceShift.n}건`} />
+        <Tile label="AI 서기 정확도" value={ratio(s.screening.correct, s.screening.total)} note={`${small(s.screening.total) ? '' : `${s.screening.correct}/${s.screening.total} · `}판결과 일치 ${s.screening.agreeWithFinal}건`} />
+        <Tile label="판결 정확도" value={ratio(s.judges.correct, s.judges.total)} note={small(s.judges.total) ? undefined : `${s.judges.correct}/${s.judges.total}`} />
+        <Tile label="판사석 일치율" value={ratio(s.seatAgreement.agree, s.seatAgreement.total, '판사석 비교')} note={small(s.seatAgreement.total) ? undefined : `${s.seatAgreement.agree}/${s.seatAgreement.total}`} />
+        <Tile label="첫인상 → 판결 확신 변화" value={s.confidenceShift.mean === null || s.confidenceShift.n < MIN_N ? `표본 부족 · ${s.confidenceShift.n}건` : `${s.confidenceShift.mean > 0 ? '+' : ''}${s.confidenceShift.mean.toFixed(1)}점`} note={`낚시성 방향 평균 · ${s.confidenceShift.n}건`} />
       </TileGroup>
       <TileGroup title="에이전트의 자기 점검과 사람의 개입" sub="에이전트가 스스로 어디까지 고치고, 언제 사람이 개입해야 하는지 보여 줍니다.">
-        <Tile label="에이전트 자기 수정률" value={s.agents.selfCorrectionRate === null ? '아직 표본이 적어요' : pct(s.agents.selfCorrectionRate)} note="처음 초안에서 걸린 근거를 고쳐서 통과시킨 비율" />
+        <Tile label="에이전트 자기 수정률" value={s.agents.selfCorrectionRate === null ? '표본 부족' : pct(s.agents.selfCorrectionRate)} note="처음 초안에서 걸린 근거를 고쳐서 통과시킨 비율" />
         <Tile label="사람에게 넘긴 주장" value={s.agents.escalations} note="에이전트가 두 번 고쳐도 해결 못 해 판사에게 넘긴 주장 수" />
         <Tile label="판사가 검증관을 거스른 횟수" value={s.checkerOverrides.admittedVoided + s.checkerOverrides.struckCounted} note={`무효 근거를 채택 ${s.checkerOverrides.admittedVoided} · 유효 근거를 기각 ${s.checkerOverrides.struckCounted}`} />
         <Tile label="조작 실험 사건 (레드팀)" value={s.redteam.variants} note={`일부러 비튼 기사 중 서기 권고가 뒤집힌 ${s.redteam.screeningFlipped}건 (AI가 속은 정도)`} />
@@ -119,8 +120,8 @@ export default function StatsPage() {
           legend={[['bg-pro', '찬성 (낚시성이다)'], ['bg-con', '반대 (낚시성 아니다)'], ['bg-stone-500', '반박']].map(([c, l]) => <span key={l} className="inline-flex items-center gap-1"><span className={`h-3 w-3 rounded-sm ${c}`} />{l}</span>)}
           rows={s.byClaimType.map((t) => ({ label: t.label, value: t.count, text: `${t.count}건 · 검증 ${pct(t.verifiedRate)}`, color: STANCE_BAR[t.stance] ?? 'bg-stone-500' }))}
         />
-        <BarList title="분야별 사건 수 · 서기 재현율(낚시성 기사를 잡아낸 비율)" rows={s.byCategory.map((c) => ({ label: c.category, value: c.cases, text: `${c.cases}건 · 서기 재현율 ${c.screeningSample < MIN_N || c.screeningRecall === null ? '아직 표본이 적어요' : pct(c.screeningRecall)} (표본 ${c.screeningSample}건)`, color: 'bg-stone-700' }))} />
-        <BarList title="실험실 조건별 정답률" rows={s.lab.map((l) => ({ label: `${COND[l.condition] ?? `조건 ${l.condition}`} (${l.sessions}세션)`, value: l.verdicts ? l.correct / l.verdicts : 0, max: 1, text: `${l.correct}/${l.verdicts} · ${ratio(l.correct, l.verdicts)}`, color: 'bg-stone-700' }))} />
+        <BarList title="분야별 사건 수 · 서기 재현율(낚시성 기사를 잡아낸 비율)" rows={s.byCategory.map((c) => ({ label: c.category, value: c.cases, text: `${c.cases}건 · 서기 재현율 ${c.screeningSample < MIN_N || c.screeningRecall === null ? `표본 부족 · ${c.screeningSample}건` : pct(c.screeningRecall)}${c.screeningSample < MIN_N || c.screeningRecall === null ? '' : ` (표본 ${c.screeningSample}건)`}`, color: 'bg-stone-700' }))} />
+        <BarList title="실험실 조건별 정답률" rows={s.lab.map((l) => ({ label: `${COND[l.condition] ?? `조건 ${l.condition}`} (${l.sessions}세션)`, value: l.verdicts ? l.correct / l.verdicts : 0, max: 1, text: small(l.verdicts) ? `표본 부족 · 판결 ${l.verdicts}건 중 ${l.correct}건 정답` : `${l.correct}/${l.verdicts} · ${pct(l.correct / l.verdicts)}`, color: 'bg-stone-700' }))} />
       </div>
     </PageShell>
   )

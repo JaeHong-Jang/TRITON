@@ -1,9 +1,10 @@
 // 관제 근거 매트릭스
 import { useMemo, useState } from 'react'
 import type { Agent, Claim, Evidence, EvidenceStatus, Instance, LedgerEntry, Ruling, TrialRecord } from '../../api/types'
+import { evidenceName } from '../../lib/names'
 
 type EvidenceFilter = EvidenceStatus | 'all'
-type EvidenceRow = { claim: Claim; evidence: Evidence; agent: Agent | null; ruling: Ruling | null; ruledAt: string | null }
+type EvidenceRow = { name: string; claim: Claim; evidence: Evidence; agent: Agent | null; ruling: Ruling | null; ruledAt: string | null }
 
 const STATUS_LABELS: Record<EvidenceStatus, string> = {
   verified: '원문 대조 통과',
@@ -43,7 +44,7 @@ function evidenceRows(record: TrialRecord | null, ledger: LedgerEntry[], instanc
   const agents = new Map(record.bench.map((agent) => [agent.id, agent]))
   return record.claims.flatMap((claim) => claim.evidence.map((evidence) => {
     const ruling = rulings.get(evidence.id)
-    return { claim, evidence, agent: agents.get(claim.agentId) ?? null, ruling: ruling?.ruling ?? null, ruledAt: ruling?.at ?? null }
+    return { name: evidenceName(record.claims, record.bench, evidence.id), claim, evidence, agent: agents.get(claim.agentId) ?? null, ruling: ruling?.ruling ?? null, ruledAt: ruling?.at ?? null }
   }))
 }
 
@@ -104,9 +105,9 @@ export function ControlEvidence({ record, ledger, hidden, instance, onSelect, se
       </dl>
       {visible.length ? (
         <div className="cr-evidence-grid">
-          {visible.map(({ claim, evidence, agent, ruling, ruledAt }) => (
-            <button key={evidence.id} type="button" className={`cr-evidence-cell cr-evidence-${evidence.status}`} title={`${evidenceText(evidence)} · ${STATUS_HELP[evidence.status]}`} aria-label={`${evidence.id} · ${STATUS_LABELS[evidence.status]} · ${agentLabel(agent, claim)} · ${evidenceText(evidence)} · ${rulingLabel(ruling)}`} aria-pressed={selectedId === evidence.id || selectedId === `evidence:${evidence.id}`} onClick={() => onSelect(`evidence:${evidence.id}`)}>
-              <strong>{evidence.status === 'verified' ? '✓' : '!'} {evidence.id}</strong>
+          {visible.map(({ name, claim, evidence, agent, ruling, ruledAt }) => (
+            <button key={evidence.id} type="button" className={`cr-evidence-cell cr-evidence-${evidence.status}`} title={`${evidence.id} · ${evidenceText(evidence)} · ${STATUS_HELP[evidence.status]}`} aria-label={`${name} · ${STATUS_LABELS[evidence.status]} · ${agentLabel(agent, claim)} · ${evidenceText(evidence)} · ${rulingLabel(ruling)}`} aria-pressed={selectedId === evidence.id || selectedId === `evidence:${evidence.id}`} onClick={() => onSelect(`evidence:${evidence.id}`)}>
+              <strong>{evidence.status === 'verified' ? '✓' : '!'} {name}</strong>
               <span className="cr-cell-top"><b>{STATUS_LABELS[evidence.status]}</b><small>{agent?.name ?? claim.agentId}</small></span>
               <small>{rulingLabel(ruling)}{ruledAt ? ` · ${new Date(ruledAt).toLocaleTimeString('ko-KR', { hour12: false })}` : ''}</small>
             </button>

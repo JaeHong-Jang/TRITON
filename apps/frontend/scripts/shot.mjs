@@ -61,14 +61,14 @@ async function untilVerdict(page, label) {
 
 // 첫인상 기록
 async function firstImpression(page) {
-  await page.getByRole('radio', { name: '낚시성 (유죄)' }).click()
+  await page.getByRole('radio', { name: '낚시성이다', exact: true }).click()
   await page.getByRole('button', { name: '첫인상 기록하고 개정' }).click()
 }
 
 // 판사석 하나 판결
 async function seat(page, leaning, label, reason, report = false) {
   if (report) await page.getByLabel('재판연구관 보고서를 확인했습니다').check()
-  await page.getByRole('radio', { name: leaning }).click()
+  await page.getByRole('radio', { name: leaning, exact: true }).click()
   await page.locator('textarea').fill(reason)
   await page.getByRole('button', { name: label }).click()
   await page.waitForTimeout(300)
@@ -98,8 +98,9 @@ async function desktop() {
   await page.getByRole('button', { name: /원문에서 보기/ }).nth(2).click()
   await shot(page, '06-court-1-ruled-focus', 2000)
 
-  await seat(page, '낚시성 (유죄)', '판결 기록', '삽입된 게임 홍보 문장이 기사 주제와 무관하다고 판단함')
+  await seat(page, '낚시성이다', '판결 기록', '삽입된 게임 홍보 문장이 기사 주제와 무관하다고 판단함')
   await shot(page, '07-court-1-decision', 800)
+  await page.getByRole('button', { name: '판사석 사유 가져오기' }).click()
   await page.getByRole('button', { name: /2심으로 항소/ }).click()
   await shot(page, '08-court-2-agents-working', 2800)
   await claimsShown(page, 3)
@@ -121,16 +122,17 @@ async function desktop() {
 
   await untilVerdict(page, /판사석 1 판결 기록/)
   await shot(page, '13-court-2-all-revealed', 2500)
-  await seat(page, '낚시성 (유죄)', /판사석 1 판결 기록/, '삽입 문장이 주제와 무관하다고 봅니다')
-  await seat(page, '낚시성 아님 (무죄)', /판사석 2 판결 기록/, '제목 표현은 본문 사실이 뒷받침한다고 봅니다')
+  await seat(page, '낚시성이다', /판사석 1 판결 기록/, '삽입 문장이 주제와 무관하다고 봅니다')
+  await seat(page, '낚시성 아니다', /판사석 2 판결 기록/, '제목 표현은 본문 사실이 뒷받침한다고 봅니다')
   await shot(page, '14-court-3-agents-working', 2800)
 
   await untilVerdict(page, /판사석 1 판결 기록/)
   await shot(page, '15-court-3-all-revealed', 2500)
-  await seat(page, '낚시성 (유죄)', /판사석 1 판결 기록/, '연구관 보고서의 쟁점을 검토해 낚시성으로 판단', true)
-  await seat(page, '낚시성 아님 (무죄)', /판사석 2 판결 기록/, '제목의 핵심이 본문에 나온다고 판단합니다')
-  await seat(page, '낚시성 (유죄)', /판사석 3 판결 기록/, '삽입 문장 근거가 검증되어 낚시성으로 판단')
-  await page.getByRole('radio', { name: /L1/ }).click()
+  await seat(page, '낚시성이다', /판사석 1 판결 기록/, '연구관 보고서의 쟁점을 검토해 낚시성으로 판단', true)
+  await seat(page, '낚시성 아니다', /판사석 2 판결 기록/, '제목의 핵심이 본문에 나온다고 판단합니다')
+  await seat(page, '낚시성이다', /판사석 3 판결 기록/, '삽입 문장 근거가 검증되어 낚시성으로 판단')
+  await page.getByRole('radio', { name: '독자에게 안내' }).click()
+  await page.getByRole('button', { name: '판사석 사유 가져오기' }).click()
   await shot(page, '16-court-3-decision', 800)
   await page.getByRole('button', { name: '최종 판결 확정' }).click()
   await shot(page, '17-court-3-final', 2500)
@@ -152,7 +154,7 @@ async function desktop() {
   await page.getByRole('button', { name: '판결하기' }).first().click()
   await page.getByLabel('낚시성 여부').waitFor()
   await shot(page, '23-lab-judging', 600)
-  await page.getByRole('radio', { name: '낚시성 (유죄)' }).click()
+  await page.getByRole('radio', { name: '낚시성이다', exact: true }).click()
   await page.locator('textarea').fill('변론과 천칭을 보고 낚시성으로 판단합니다')
   await page.getByRole('button', { name: '판결 기록하고 정답 보기' }).click()
   await page.getByLabel('정답 공개').waitFor()

@@ -43,15 +43,24 @@ export function NowBanner() {
   const v = useCourtView()
   const ont = useOntology((s) => s.ont)
   const started = useCourt((s) => s.started)
+  const setFocus = useCourt((s) => s.setFocus)
   if (!v) return null
+  const pending = v.pendingRulings
   const n = narrate(v.state, v.records, ont, started)
   return (
     <section id="sec-now" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4">
       <div aria-live="polite">
         <p className="text-xs font-bold tracking-wide text-amber-900">지금 일어나는 일</p>
         <p className="mt-1 text-lg font-black leading-snug">{n.title}</p>
-        <p className="mt-1 text-sm text-stone-700">{n.detail}</p>
+        {n.detail ? <p className="mt-1 text-sm text-stone-700">{n.detail}</p> : null}
       </div>
+      {pending.length && v.canRule ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2" aria-label="판정할 근거">
+          <p className="text-sm font-bold text-amber-950">판정할 근거 {pending.length}개{v.phase === 'review' ? ' · 모두 판정해야 판결 입력이 열립니다' : ''}</p>
+          <button type="button" className="rounded-lg bg-stone-900 px-3 py-1.5 text-sm font-bold text-amber-200 hover:bg-stone-700" onClick={() => setFocus(pending[0])}>첫 번째로 이동</button>
+        </div>
+      ) : null}
+      {v.live && (v.phase === 'seats' || v.phase === 'decision') ? <button type="button" className="mt-3 rounded-lg bg-stone-900 px-4 py-2 text-sm font-bold text-amber-200 hover:bg-stone-700" onClick={() => document.getElementById('sec-verdict')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>판결 입력으로 이동</button> : null}
       <ActivityFeed />
       {v.state.final ? <Link to={`/records/${v.caseData.id}`} className="mt-3 inline-block rounded-lg bg-stone-900 px-4 py-2 text-sm font-bold text-amber-200 hover:bg-stone-700">기록실에서 판결문 보기</Link> : null}
     </section>

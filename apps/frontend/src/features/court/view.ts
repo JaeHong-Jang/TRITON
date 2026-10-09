@@ -54,6 +54,7 @@ export function useCourtView() {
     const activity = writing ? latestActivity(events, true, hidden) : []
     const mockManual = import.meta.env.VITE_MOCK === '1' && caseData.origin === 'manual'
     const needStart = !mockManual && live && !state.final && (!job || (!job.id && job.status === 'error')) && (phase === 'need_record' || (phase === 'first_impression' && !started))
+    const pendingRulings = shown.flatMap((c) => c.evidence).filter((e) => e.status !== 'verified' && !state.rulings[e.id]).map((e) => e.id)
     const last = live && phase === 'hearing' ? shown.at(-1) : undefined
     const focusEvidence = focus ? Object.values(records).flatMap((r) => r?.claims ?? []).flatMap((c) => c.evidence).find((e) => e.id === focus) ?? null : null
     return {
@@ -64,6 +65,7 @@ export function useCourtView() {
       speakingClaim: last ?? null,
       currentSeat: live && phase === 'seats' ? state.instances[viewInstance].seats.length + 1 : null,
       focusEvidence,
+      pendingRulings,
       writing,
       activity,
       needStart, mockManual,

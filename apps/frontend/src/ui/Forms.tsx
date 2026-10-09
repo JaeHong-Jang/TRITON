@@ -7,8 +7,8 @@ import { INPUT } from './styles'
 // 낚시성 여부 선택 버튼
 export function LeaningPicker({ value, onChange }: { value: Leaning | null; onChange: (l: Leaning) => void }) {
   const opts: { v: Leaning; label: string; on: string }[] = [
-    { v: 'clickbait', label: '낚시성 (유죄)', on: 'border-pro bg-pro text-white' },
-    { v: 'not_clickbait', label: '낚시성 아님 (무죄)', on: 'border-con bg-con text-white' },
+    { v: 'clickbait', label: '낚시성이다', on: 'border-pro bg-pro text-white' },
+    { v: 'not_clickbait', label: '낚시성 아니다', on: 'border-con bg-con text-white' },
   ]
   return (
     <div role="radiogroup" aria-label="낚시성 여부" className="grid grid-cols-2 gap-2">

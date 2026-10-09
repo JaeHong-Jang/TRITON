@@ -8,11 +8,12 @@ import { ExecutionGraph } from '../features/execution/ExecutionGraph'
 import { AgentLog } from '../features/ontology/AgentLog'
 import { EvidenceGraph } from '../features/ontology/EvidenceGraph'
 import { describeEntry, eventFromEntry } from '../lib/ledger'
+import { actionLabel, leaningLabel } from '../lib/names'
 import { replay, type Records as RecordMap, type TrialEvent, type TrialState } from '../lib/trial'
 import { Badge, StatusBadge } from '../ui/Badge'
 import { ErrorNote, Loading } from '../ui/Feedback'
-import { fmtTime, leaningLabel } from '../ui/format'
-import { actionLabel, claimLabel, needsHuman, specialtyLabel, useOntology } from '../ui/ontology'
+import { fmtTime } from '../ui/format'
+import { claimLabel, needsHuman, specialtyLabel, useOntology } from '../ui/ontology'
 import { useAsync } from '../ui/useAsync'
 
 // 장부 카드 바탕
@@ -33,7 +34,7 @@ function RecordsIndex() {
               <Link to={`/records/${c.id}`} className={`${PANEL} flex flex-wrap items-center gap-2 p-3.5 hover:bg-stone-50`}>
                 <span className="text-xs font-bold text-stone-600">{c.id}</span>
                 <span className="min-w-0 flex-1 basis-60 font-bold">{c.title}</span>
-                <Badge tone={c.progress.stage === 'final' ? 'green' : 'amber'}>{c.progress.stage === 'final' ? `확정 · ${leaningLabel(c.progress.finalVerdict)}` : c.progress.stage === 'new' ? '신규' : '진행 중'}</Badge>
+                <Badge tone={c.progress.stage === 'final' ? 'green' : 'amber'}>{c.progress.stage === 'final' ? `확정 · ${c.progress.finalVerdict ? leaningLabel(c.progress.finalVerdict) : ''}` : c.progress.stage === 'new' ? '신규' : '진행 중'}</Badge>
                 <Badge>{c.trials.length}개 심급 기록</Badge>
               </Link>
             </li>
@@ -75,7 +76,7 @@ function InstanceSection({ rec, state, ledger, sentences }: { rec: TrialRecord; 
                   <ul className="mt-1 space-y-0.5 pl-3 text-xs text-stone-700">
                     {c.evidence.map((e) => (
                       <li key={e.id} className="flex flex-wrap items-center gap-1">
-                        {e.kind === 'absence' ? `부재 '${e.keyword}'` : `#${e.sentenceNo} “${e.quote}”`} <StatusBadge status={e.status} />
+                        {e.kind === 'absence' ? `부재 '${e.keyword}'` : `${e.status === 'title' || !e.sentenceNo ? '제목 인용' : `#${e.sentenceNo}`} “${e.quote}”`} <StatusBadge status={e.status} kind={e.kind} />
                         {state.rulings[e.id] ? <Badge tone={state.rulings[e.id] === 'admitted' ? 'green' : 'red'}>판사 {state.rulings[e.id] === 'admitted' ? '채택' : '기각'}</Badge> : null}
                       </li>
                     ))}
@@ -175,8 +176,8 @@ function CaseRecords({ caseId }: { caseId: string }) {
       {f ? (
         <section className={`space-y-2 rounded-2xl border p-5 ${f.verdict === 'clickbait' ? 'border-pro/30 bg-pro-soft/60' : 'border-con/30 bg-con-soft/60'}`} aria-label="최종 판결">
           <p className="text-xs font-bold text-stone-600">최종 판결</p>
-          <p className={`text-xl font-black ${f.verdict === 'clickbait' ? 'text-pro' : 'text-con'}`}>{f.verdict === 'clickbait' ? '유죄 · 낚시성 기사' : '무죄 · 낚시성 아님'}</p>
-          <p className="text-sm">표결 {f.votes.map((v) => `${v.seat}석 ${leaningLabel(v.verdict)}`).join(' · ')} · 조치 {f.action} ({actionLabel(ont, f.action)}) <Badge tone={needsHuman(ont, f.action) ? 'amber' : 'gray'}>{needsHuman(ont, f.action) ? '사람 승인 기록' : '판사 기록/안내'}</Badge></p>
+          <p className={`text-xl font-black ${f.verdict === 'clickbait' ? 'text-pro' : 'text-con'}`}>{f.verdict === 'clickbait' ? '판결: 낚시성 기사' : '판결: 낚시성 아닌 기사'}</p>
+          <p className="text-sm">표결 {f.votes.map((v) => `${v.seat}석 ${leaningLabel(v.verdict)}`).join(' · ')} · 조치 <span title={f.action}>{actionLabel(f.action)}</span> <Badge tone={needsHuman(ont, f.action) ? 'amber' : 'gray'}>{needsHuman(ont, f.action) ? '사람 승인 기록' : '판사 기록/안내'}</Badge></p>
           <p className="text-sm text-stone-700">사유: {f.reason}</p>
           <AnswerCard caseId={caseId} verdict={f.verdict} noGroundTruth={data.case.origin === 'manual'} />
         </section>

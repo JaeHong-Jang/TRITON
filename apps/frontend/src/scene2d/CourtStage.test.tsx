@@ -52,4 +52,21 @@ describe('석조 법정의 공개 경계', () => {
     expect(html).not.toContain('공개 근거 선택')
     expect(html).not.toContain(claim.text)
   })
+
+  it('공개 후 장면 아래 찬반 무게 막대를 보이고 첫인상 전에는 숨긴다', () => {
+    const open = renderToStaticMarkup(<CourtStage view={scene(false)} speakingClaim={null} activity={[]} currentSeat={null} mini />)
+    expect(open).toContain('찬성 2')
+    expect(open).toContain('반대 0')
+    expect(open).toContain('기사의 판결을 뜻하지 않습니다')
+    expect(renderToStaticMarkup(<CourtStage view={scene(true)} speakingClaim={null} activity={[]} currentSeat={null} />)).not.toContain('기사의 판결을 뜻하지 않습니다')
+  })
+
+  it('부재 근거는 제목 핵심어가 본문에 없다는 문장으로 읽힌다', () => {
+    const view = scene(false)
+    const absence = { ...evidence, id: 'a', kind: 'absence' as const, sentenceNo: null, quote: null, keyword: '2021', status: 'verified' as const, foundIn: null }
+    view.weights = [{ ...weight, evidenceId: 'a', evidence: absence, ruled: null }]
+    const html = renderToStaticMarkup(<CourtStage view={view} speakingClaim={null} activity={[]} currentSeat={null} />)
+    expect(html).toContain("제목의 &#x27;2021&#x27;이(가) 본문에 없음 · 코드가 본문 전체에서 확인")
+    expect(html).toContain('판사 판단 전')
+  })
 })

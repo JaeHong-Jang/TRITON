@@ -15,6 +15,20 @@ function ruling(id: string, value: string | null): LedgerEntry {
 }
 
 describe('관제 패널 공개 경계', () => {
+  it('근거 셀은 읽기 쉬운 이름을 표시하고 내부 식별자는 툴팁과 선택에 유지한다', () => {
+    const namedRecord = {
+      ...record,
+      bench: [{ ...record.bench[0], name: '검사 1' }],
+      claims: [{ ...record.claims[0], evidence: [{ ...evidence, id: 'i3-E1', kind: 'quote' as const, sentenceNo: 15, status: 'verified' as const }] }],
+    }
+    const html = renderToStaticMarkup(<ControlEvidence record={namedRecord} ledger={[]} hidden={false} instance={1} selectedId="evidence:i3-E1" onSelect={vi.fn()} />)
+    expect(html).toContain('<strong>✓ 검사 1의 근거 · 15번 문장 인용</strong>')
+    expect(html).toContain('aria-label="검사 1의 근거 · 15번 문장 인용 · 원문 대조 통과')
+    expect(html).toContain('title="i3-E1 · ')
+    expect(html).toContain('aria-pressed="true"')
+    expect(html.replace(/<[^>]*>/g, '')).not.toContain('i3-E1')
+  })
+
   it('숨겨진 입력에 실제 기록이 있어도 근거와 이벤트를 렌더링하지 않는다', () => {
     const html = renderToStaticMarkup(<><ControlEvidence record={record} ledger={[]} hidden instance={1} selectedId={null} onSelect={vi.fn()} /><ControlLog record={record} run={null} ledger={[]} hidden instance={1} onSelect={vi.fn()} /></>)
     expect(html).not.toContain(evidence.id)

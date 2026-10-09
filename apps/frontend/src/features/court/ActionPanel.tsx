@@ -4,8 +4,8 @@ import type { ActionLevel, Instance, Leaning } from '../../api/types'
 import { MIN_REASON, agentsNeedingManualReview, claimsNeedingManualReview, majorityOf, seatCount } from '../../lib/trial'
 import { Confidence, GuardedButton, LeaningPicker, ReasonBox, Term } from '../../ui/Forms'
 import { Badge } from '../../ui/Badge'
-import { leaningLabel } from '../../ui/format'
-import { actionLabel, needsHuman, useOntology } from '../../ui/ontology'
+import { actionLabel, leaningLabel } from '../../lib/names'
+import { needsHuman, useOntology } from '../../ui/ontology'
 import { CARD, INPUT, PRIMARY, SECONDARY } from '../../ui/styles'
 import { useCourt } from './store'
 import { VerdictSummary } from './VerdictSummary'
@@ -116,7 +116,7 @@ function DecisionForm({ instance }: { instance: Instance }) {
   const seats = v.state.instances[instance].seats
   const majority = majorityOf(seats)
   const [action, setAction] = useState<ActionLevel | null>(null)
-  const [reason, setReason] = useState(seats.at(-1)?.reason ?? '')
+  const [reason, setReason] = useState('')
   const short = reason.trim().length < MIN_REASON
   const confirmWhy = busy ? '기록하는 중입니다' : majority === null ? '판사석 의견이 갈려 확정할 수 없어요' : !action ? '조치 단계를 고르면 확정할 수 있어요' : short ? `사유를 ${MIN_REASON}자 이상 쓰면 확정할 수 있어요` : null
   const appealWhy = busy ? '기록하는 중입니다' : short ? `사유를 ${MIN_REASON}자 이상 쓰면 보낼 수 있어요` : null
@@ -131,17 +131,18 @@ function DecisionForm({ instance }: { instance: Instance }) {
       {majority ? (
         <fieldset>
           <legend className="mb-1 text-sm font-bold">조치 단계 <span className="text-xs font-normal text-stone-600">판사가 조치 단계를 선택합니다. 외부 조치는 실행하지 않고 승인 기록만 남깁니다.</span></legend>
-          {instance === 3 && v.rec?.officer ? <p className="mb-1 text-xs text-emerald-800">재판연구관 권고: {actionLabel(ont, v.rec.officer.recommendedAction)} ({v.rec.officer.recommendedAction}, 참고용)</p> : null}
+          {instance === 3 && v.rec?.officer ? <p className="mb-1 text-xs text-emerald-800">재판연구관 권고: <span title={v.rec.officer.recommendedAction}>{actionLabel(v.rec.officer.recommendedAction)}</span> (참고용)</p> : null}
           <div className="grid gap-1.5" role="radiogroup" aria-label="조치 단계">
             {LEVELS.map((l) => (
               <button key={l} role="radio" aria-checked={action === l} onClick={() => setAction(l)} className={`flex items-center gap-2 rounded-lg border-2 px-2 py-1.5 text-left text-sm ${action === l ? 'border-stone-900 bg-amber-100' : 'border-stone-300 bg-white hover:bg-stone-50'}`}>
-                <span className="flex-1 font-semibold">{actionLabel(ont, l)} <span className="text-xs font-normal text-stone-600">({l})</span></span>
+                <span className="flex-1 font-semibold"><span title={l}>{actionLabel(l)}</span></span>
                 {needsHuman(ont, l) ? <Badge tone="amber">사람 승인 기록</Badge> : <Badge tone="gray">판사 기록/안내</Badge>}
               </button>
             ))}
           </div>
         </fieldset>
       ) : null}
+      {seats.at(-1)?.reason ? <button type="button" className="text-xs font-semibold text-stone-700 underline decoration-dotted hover:text-stone-900" onClick={() => setReason(seats.at(-1)?.reason ?? '')}>판사석 사유 가져오기</button> : null}
       <ReasonBox value={reason} onChange={setReason} label={majority ? '최종 사유 (순위 하향·제재처럼 무거운 조치는 승인 근거로 필수)' : '회부 사유'} />
       {majority ? (
         <GuardedButton className={PRIMARY} why={confirmWhy} onGo={() => action && majority && finalize(majority, action, reason.trim())}>{instance === 3 ? '최종 판결 확정' : '판결 확정'}</GuardedButton>

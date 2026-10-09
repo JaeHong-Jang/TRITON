@@ -127,7 +127,7 @@ function StartForm({ onStart }: { onStart: (s: LabSession) => void }) {
       <div className="grid items-stretch gap-2 sm:grid-cols-3" role="radiogroup" aria-label="실험 조건">
         {(data ?? []).map((c) => (
           <button key={c.id} role="radio" aria-checked={cond === c.id} onClick={() => setCond(c.id)} className={`flex h-full flex-col items-stretch justify-start gap-1 rounded-xl border-2 p-3 text-left ${cond === c.id ? 'border-stone-900 bg-amber-100' : 'border-stone-300 bg-white hover:bg-stone-50'}`}>
-            <p className="font-black">조건 {c.id} · {c.label}</p>
+            <p className="font-black">조건 {c.id} · {c.label.replace(/^[ABC] /, '')}</p>
             <p className="text-xs text-stone-600">{c.description}</p>
             <p className="mt-auto border-t border-stone-200 pt-2 text-xs font-semibold text-stone-800">{COND_NOTE[c.id]}</p>
           </button>

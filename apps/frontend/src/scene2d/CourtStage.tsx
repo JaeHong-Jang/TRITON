@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { Agent, Case, Claim, EvidenceStatus, Leaning, Stance } from '../api/types'
 import type { AgentActivity } from '../lib/activity'
-import { fmtWeight, type WeightItem } from '../lib/scale'
+import { balanceOf, fmtWeight, type WeightItem } from '../lib/scale'
 import './traditional-court.css'
 
 // 무대에 그릴 법정 상태
@@ -40,14 +40,14 @@ const STATUS_LABEL: Record<EvidenceStatus, string> = {
 }
 
 const STANCE_LABEL: Record<Stance, string> = {
-  pro: '낚시성 주장 근거',
-  con: '반대 주장 근거',
+  pro: '찬성 · 낚시성이다',
+  con: '반대 · 낚시성 아니다',
 }
 
 const RULING_LABEL = {
   admitted: '사람 판사 채택',
   struck: '사람 판사 기각',
-  undecided: '사람 판사 미판단',
+  undecided: '판사 판단 전',
 }
 
 // 근거 짧은 이름
@@ -69,6 +69,10 @@ function evidenceLocation(item: WeightItem): string {
 
 // 근거 문구 축약
 function evidenceExcerpt(item: WeightItem): string {
+  if (item.evidence.kind === 'absence') {
+    const kw = item.evidence.keyword ?? ''
+    return item.evidence.status === 'verified' ? `제목의 '${kw}'이(가) 본문에 없음 · 코드가 본문 전체에서 확인` : `제목의 '${kw}'이(가) 본문에 없다는 주장 · 코드 확인 결과 본문에 있음`
+  }
   const text = item.evidence.quote ?? item.evidence.keyword ?? '제출된 원문 단서'
   return text.length > 58 ? `${text.slice(0, 58)}…` : text
 }
@@ -214,12 +218,30 @@ function EvidenceButton({ item, selected, onPick }: { item: WeightItem; selected
       <span className="trad-court__meta">
         <span>{evidenceLocation(item)}</span>
         <span>코드 검증: {status}</span>
-        <span>사람 판단: {ruling}</span>
+        <span>{item.ruled ? `사람 판단: ${ruling}` : ruling}</span>
         {item.voidReason === 'perjury' ? <span>주장 안에 원문 불일치가 있어 무게 제외</span> : null}
         {item.fate === 'challenged' ? <span>이의 제기됨 · 판사가 반박을 채택하면 절반</span> : null}
-        {item.fate === 'halved' ? <span>반박 채택으로 무게 절반</span> : null}
+        {item.fate === 'halved' ? <span>상대 반박이 채택되어 무게 절반</span> : null}
       </span>
     </button>
+  )
+}
+
+// 장면 아래 찬반 근거 무게 막대
+function WeightBar({ weights }: { weights: WeightItem[] }) {
+  const { pro, con } = balanceOf(weights)
+  const total = pro + con
+  return (
+    <div className="shrink-0 border-t border-stone-300 bg-stone-50 px-4 py-2 text-ink" data-scene="traditional-court-weight" aria-label="공개된 근거 무게 비율">
+      <p className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm font-bold">
+        <span className="text-pro">찬성 {fmtWeight(pro)}</span>
+        <span className="order-last basis-full text-xs font-normal text-stone-600 sm:order-none sm:basis-auto">근거 무게 · 기사의 판결을 뜻하지 않습니다</span>
+        <span className="text-con">반대 {fmtWeight(con)}</span>
+      </p>
+      <div className="mt-1 flex h-2.5 overflow-hidden rounded-full bg-stone-200" role="img" aria-label={`찬성 ${fmtWeight(pro)} 대 반대 ${fmtWeight(con)}`}>
+        {total ? <><span className="bg-pro" style={{ width: `${(pro / total) * 100}%` }} /><span className="bg-con" style={{ width: `${(con / total) * 100}%` }} /></> : null}
+      </div>
+    </div>
   )
 }
 
@@ -235,7 +257,7 @@ function EvidenceStrip({ weights, focusId, onPick }: { weights: WeightItem[]; fo
           {(['pro', 'con'] as const).map((stance) => (
             <section className="trad-court__evidenceGroup" key={stance} aria-label={STANCE_LABEL[stance]}>
               <header>
-                <span>{STANCE_LABEL[stance]}</span>
+                <span className={stance === 'pro' ? 'text-pro' : 'text-con'}>{STANCE_LABEL[stance]}</span>
                 <small>{grouped[stance].length}개</small>
               </header>
               <div className="trad-court__buttonGrid">
@@ -258,6 +280,7 @@ export default function CourtStage({ view, mini = false }: StageProps) {
       <div className="trad-court__frame">
         <CourtPicture />
       </div>
+      {!view.hidden ? <WeightBar weights={view.weights} /> : null}
       {!view.hidden && !mini ? <EvidenceStrip weights={view.weights} focusId={view.focusId} onPick={view.onPick} /> : null}
     </section>
   )

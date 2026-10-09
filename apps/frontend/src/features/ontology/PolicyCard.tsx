@@ -10,16 +10,20 @@ export function clerkWarning(stats: Stats | null): { tone: 'none' | 'ok' | 'warn
   if (!stats || stats.screening.total === 0) return { tone: 'none', text: '아직 확정된 판결이 없어 서기 정확도를 잴 수 없습니다. 판결이 쌓이면 여기에 나옵니다.' }
   const acc = stats.screening.correct / stats.screening.total
   const wrong = stats.screening.total - stats.screening.correct
+  if (stats.screening.total < SMALL_N) return { tone: 'warn', text: `표본 부족 · 정답 공개 ${stats.screening.total}건 중 ${stats.screening.correct}건 일치라 정확도를 아직 믿기 어렵습니다. 약식 처리 기준을 높게 유지하세요.` }
   if (stats.screening.total < 20) return { tone: 'warn', text: `표본이 ${stats.screening.total}건뿐이라 정확도(${pct(acc)})를 아직 믿기 어렵습니다. 약식 처리 기준을 높게 유지하세요.` }
   if (acc < 0.6) return { tone: 'bad', text: `서기가 ${stats.screening.total}건 중 ${wrong}건을 틀렸습니다. 이 정확도로는 약식 권고로 넘기기 위험하니 끄거나 기준을 크게 높이세요.` }
   if (acc < 0.8) return { tone: 'warn', text: `서기가 ${stats.screening.total}건 중 ${wrong}건을 틀렸습니다. 약식 처리 기준을 높이거나 고위험 분야를 넓혀 사람이 더 보게 하세요.` }
   return { tone: 'ok', text: `서기가 ${stats.screening.total}건 중 ${stats.screening.correct}건을 맞혔습니다. 지금 기준으로 약식 권고로 분류해도 괜찮은 수준입니다.` }
 }
 
-const WARN_STYLE = { none: 'border-stone-200 bg-stone-50 text-stone-600', ok: 'border-emerald-200 bg-emerald-50 text-emerald-900', warn: 'border-amber-300 bg-amber-50 text-amber-900', bad: 'border-red-300 bg-red-50 text-red-900' }
+// 비율을 숫자로 보이는 최소 표본 수
+const SMALL_N = 5
+
+const WARN_STYLE = { none: 'border-stone-200 bg-stone-50 text-stone-600', ok: 'border-emerald-200 bg-emerald-50 text-emerald-900', warn: 'border-amber-300 bg-amber-50 text-amber-900', bad: 'border-amber-500 bg-amber-100 text-amber-950' }
 
 // 정책 카드 컴포넌트
-export function PolicyCard() {
+export function PolicyCard({ onSaved }: { onSaved?: (p: Policy) => void }) {
   const [saved, setSaved] = useState<Policy | null>(null)
   const [draft, setDraft] = useState<Policy | null>(null)
   const [cases, setCases] = useState<CaseSummary[] | null>(null)
@@ -41,6 +45,9 @@ export function PolicyCard() {
   const summary = cases?.filter((c) => c.docket.track === 'summary').length ?? 0
   const trial = cases?.filter((c) => c.docket.track === 'trial').length ?? 0
   const warn = clerkWarning(stats)
+  const small = !!stats && stats.screening.total > 0 && stats.screening.total < SMALL_N
+  const variants = cases?.filter((c) => c.variantOf).length ?? 0
+  const basis = variants ? ` (실험 변형 ${variants}건 포함 ${cases!.length}건 기준)` : ''
   const acc = stats && stats.screening.total ? stats.screening.correct / stats.screening.total : null
 
   const toggleCat = (c: string) => setDraft({ ...draft, highRiskCategories: draft.highRiskCategories.includes(c) ? draft.highRiskCategories.filter((x) => x !== c) : [...draft.highRiskCategories, c] })
@@ -50,6 +57,7 @@ export function PolicyCard() {
     try {
       const p = await api.savePolicy(draft)
       setSaved(p)
+      onSaved?.(p)
       setDraft(p)
       setCases(await api.cases())
       setDone(true)
@@ -95,20 +103,20 @@ export function PolicyCard() {
         <div className={`rounded-xl border p-3.5 text-[13px] leading-relaxed ${WARN_STYLE[warn.tone]}`} role="status">
           <div className="flex items-center justify-between gap-3">
             <b>측정된 서기 정확도</b>
-            <span className="text-base font-black tabular-nums">{acc === null ? '-' : pct(acc)}{stats && stats.screening.total ? <span className="ml-1 text-xs font-semibold opacity-70">({stats.screening.correct}/{stats.screening.total}건)</span> : null}</span>
+            <span className="text-right text-base font-black tabular-nums">{acc === null ? '미측정' : small ? `표본 부족 · 정답 공개 ${stats!.screening.total}건 중 ${stats!.screening.correct}건 일치` : <>{pct(acc)}<span className="ml-1 text-xs font-semibold opacity-70">({stats!.screening.correct}/{stats!.screening.total}건)</span></>}</span>
           </div>
-          <div className="mt-1.5"><Meter value={acc ?? 0} tone={warn.tone === 'bad' ? 'bg-red-500' : warn.tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-500'} label="서기 정확도" /></div>
+          <div className={small || acc === null ? 'hidden' : 'mt-1.5'}><Meter value={acc ?? 0} tone={warn.tone === 'bad' ? 'bg-amber-700' : warn.tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-500'} label="서기 정확도" /></div>
           <p className="mt-2">{warn.text}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" className={BTN_DARK} onClick={save} disabled={busy || !dirty}>{busy ? '저장 중…' : '정책 저장'}</button>
           {done && !dirty ? (
-            <p className="text-sm font-bold text-emerald-800" role="status">저장했습니다. 이 기준이면 약식 처리 {summary}건 · 재판 회부 {trial}건</p>
+            <p className="text-sm font-bold text-emerald-800" role="status">저장했습니다. 이 기준이면 약식 처리 {summary}건 · 재판 회부 {trial}건{basis}</p>
           ) : dirty ? (
             <p className="text-xs text-stone-500">저장해야 접수 분류에 반영됩니다.</p>
           ) : (
-            <p className="text-xs text-stone-500">현재 기준: 약식 처리 {summary}건 · 재판 회부 {trial}건</p>
+            <p className="text-xs text-stone-500">현재 기준: 약식 처리 {summary}건 · 재판 회부 {trial}건{basis}</p>
           )}
           {error ? <p role="alert" className="text-sm font-semibold text-red-700">{error}</p> : null}
         </div>

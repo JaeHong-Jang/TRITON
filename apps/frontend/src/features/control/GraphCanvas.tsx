@@ -11,7 +11,7 @@ import './graph-canvas.css'
 type Camera = { x: number; y: number; k: number }
 // 드래그 시작점
 type Drag = { pointer: number; x: number; y: number; moved: boolean; nodeId?: string; origin: NodePosition }
-const COLORS: Record<ControlGroup, string> = { source: '#dbd8cf', prosecution: '#cb785d', defense: '#7f9cbc', checker: '#8fac85', human: '#d4b370', ontology: '#a092bc' }
+const COLORS: Record<ControlGroup, string> = { source: '#dbd8cf', prosecution: '#922a22', defense: '#1f3a66', checker: '#8fac85', human: '#d4b370', ontology: '#a092bc' }
 const KINDS: ControlKind[] = ['article', 'sentence', 'claim', 'evidence', 'check', 'concept', 'rule', 'judgment']
 
 // 표시 길이 제한

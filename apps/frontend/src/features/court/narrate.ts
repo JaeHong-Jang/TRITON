@@ -16,7 +16,7 @@ export function narrate(s: TrialState, records: Records, ont: Ontology | null, s
   const writing = s.writing === i
   switch (phase) {
     case 'first_impression':
-      if (!started) return { title: '「재판 시작」을 눌러 사건을 여세요', detail: rec?.claims.length ? '저장된 변론을 법정에서 다시 재생합니다. 버튼은 한 번만 누르면 됩니다.' : 'AI 검사·변호인이 이 기사를 읽고 그 자리에서 변론을 준비합니다. 버튼은 한 번만 누르면 됩니다.' }
+      if (!started) return { title: '재판 시작 전 · 아래 「재판 시작」을 눌러 주세요', detail: '' }
       return {
         title: '기사만 읽고 첫인상을 남겨 주세요',
         detail: writing ? 'AI 검사·변호인이 지금 변론을 준비하고 있습니다. 변론 내용과 천칭은 첫인상을 기록한 뒤에 열립니다. 일하는 모습은 법정 그림에서 볼 수 있어요.' : '천칭과 변론은 아직 가려져 있습니다. 기사를 읽고 낚시성인지 고른 뒤 확신도를 정하세요.',

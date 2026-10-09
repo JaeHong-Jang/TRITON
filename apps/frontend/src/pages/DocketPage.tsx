@@ -2,9 +2,11 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { api } from '../api/client'
-import type { ActionLevel, Case, CaseSummary } from '../api/types'
+import type { Case, CaseSummary } from '../api/types'
 import { Badge, type Tone } from '../ui/Badge'
 import { ErrorNote, Loading, PageTitle } from '../ui/Feedback'
+import { actionLabel } from '../lib/names'
+import { starterCaseId } from '../lib/starter'
 import { leaningLabel } from '../ui/format'
 import { PageShell } from '../console/parts'
 import { Term } from '../ui/Forms'
@@ -16,13 +18,6 @@ const STAGES: Record<CaseSummary['progress']['stage'], { label: string; tone: To
   in_trial: { label: '재판 중', tone: 'amber' },
   appealed: { label: '항소 중', tone: 'amber' },
   final: { label: '판결 완료', tone: 'green' },
-}
-
-const ACTION_SHORT: Record<ActionLevel, string> = { L0: '조치 없음', L1: '독자 안내', L2: '노출 순위 하향', L3: '언론사 통보' }
-
-// 조치 단계 쉬운 이름
-function actionChip(a: ActionLevel | null): string {
-  return a ? `${ACTION_SHORT[a]}(${a})` : ''
 }
 
 // 등록 요청 번호 생성
@@ -143,7 +138,7 @@ function CaseCard({ c, start, showTrack }: { c: CaseSummary; start: boolean; sho
           {c.docket.screening && c.docket.track === 'summary' ? <Badge tone="green" title="약식 권고: AI 서기가 간단 처리를 권한 사건 (최종 판단은 사람)">서기: 간단 처리 권고</Badge> : null}
           {c.docket.screening && c.docket.track === 'trial' && showTrack ? <Badge tone="amber" title="재판 회부: 사람 판사가 변론을 듣고 판결해야 하는 사건">재판 진행</Badge> : null}
           <Badge tone={stage.tone}>{stage.label}{c.progress.instance ? ` · ${c.progress.instance}심` : ''}</Badge>
-          {c.progress.stage === 'final' ? <Badge title="판결과 함께 정해진 조치 단계" tone={c.progress.finalVerdict === 'clickbait' ? 'pro' : 'con'}>{leaningLabel(c.progress.finalVerdict)} · {actionChip(c.progress.action)}</Badge> : null}
+          {c.progress.stage === 'final' ? <Badge title={`판결과 함께 정해진 조치 단계${c.progress.action ? ` (코드 ${c.progress.action})` : ''}`} tone={c.progress.finalVerdict === 'clickbait' ? 'pro' : 'con'}>{leaningLabel(c.progress.finalVerdict)}{c.progress.action ? ` · ${actionLabel(c.progress.action)}` : ''}</Badge> : null}
           {c.attack ? <Badge tone="red" title={`레드팀 실험용으로 일부러 비튼 기사입니다 · 원 사건 ${c.variantOf}`}>조작 실험 사건 · {c.attack === 'inject_command' ? '명령 주입' : '문장 이동'}</Badge> : null}
         </div>
         <h2 className="mt-1.5 text-base font-black leading-snug">{c.title}</h2>
@@ -178,8 +173,10 @@ export default function DocketPage() {
   const hidden = (data ?? []).filter((c) => !c.docket.screening).length
   const summary = (data ?? []).filter((c) => c.docket.screening && c.docket.track === 'summary').length
   const trial = (data ?? []).filter((c) => c.docket.screening && c.docket.track === 'trial').length
+  const variants = (data ?? []).filter((c) => c.variantOf).length
   const showTrack = summary > 0
-  const startId = createdId ?? (data ?? []).find((c) => c.docket.track === 'trial' && c.progress.stage === 'new' && !c.variantOf)?.id
+  const startId = createdId ?? starterCaseId(data ?? [])
+  const ordered = [...list.filter((c) => c.id === startId), ...list.filter((c) => c.id !== startId)]
   const handleCreated = async (c: Case) => {
     setTrack('')
     setStage('')
@@ -194,7 +191,7 @@ export default function DocketPage() {
       <RegistrationPanel onCreated={handleCreated} />
       {data ? (
         <details className="space-y-3 rounded-lg border border-stone-200 bg-white p-4 text-sm text-stone-700" aria-label="분류 안내">
-          <summary className="cursor-pointer font-semibold">전체 {data.length}건 <span className="ml-2 text-xs font-normal text-stone-500">{showTrack ? `간단 처리 권고 ${summary} · 재판 ${trial} · ` : ''}AI 의견은 첫인상 후 공개 {hidden}</span></summary>
+          <summary className="cursor-pointer font-semibold">전체 {data.length}건 <span className="ml-2 text-xs font-normal text-stone-500">{showTrack ? `간단 처리 권고 ${summary} · 재판 ${trial} · ` : ''}첫인상 전이라 AI 의견을 가린 사건 {hidden}건{variants ? ` · 실험 변형 ${variants}건 포함` : ''}</span></summary>
           {showTrack ? <p><Badge tone="green">간단 처리 권고</Badge> AI 서기가 확신({policy ? `${policy.summaryThreshold}점 이상` : '기준 점수 이상'})하고 {policy?.highRiskCategories.length ? `${policy.highRiskCategories.join('·')} 같은 ` : ''}고위험 분야가 아닌 사건. 약식 처리 권고만 자동으로 표시되고, 최종 판결과 조치 승인은 사람이 합니다. 원하면 <Term tip="약식 권고 사건도 사람이 언제든 재판을 시작할 수 있습니다.">재판을 시작</Term>할 수 있어요.</p> : <p>지금은 모든 사건이 재판으로 진행됩니다. AI 서기의 의견은 참고용이고, 판결은 사람 판사가 내립니다.</p>}
           {showTrack ? <p><Badge tone="amber">재판 진행</Badge> 서기가 덜 확신하거나 고위험 분야라서, 사람 판사가 변론을 듣고 판결해야 하는 사건.</p> : null}
         </details>
@@ -218,12 +215,12 @@ export default function DocketPage() {
           <option value="">분야 전체</option>
           {categories.map((c) => <option key={c}>{c}</option>)}
         </select>
-        <input aria-label="사건 검색" placeholder="제목·번호 검색" value={text} onChange={(e) => setText(e.target.value)} className={INPUT} />
+        <input aria-label="사건 검색" placeholder="제목·번호 검색" value={text} onChange={(e) => setText(e.target.value)} className={`${INPUT} col-span-2 sm:col-span-1`} />
       </div>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNote message={error} onRetry={reload} /> : null}
       {data && !list.length ? <p className="rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm text-stone-600">{data.length ? '조건에 맞는 사건이 없습니다. 필터를 바꿔 보세요.' : '아직 등록된 사건이 없습니다. 새 기사 등록으로 첫 사건을 넣어 보세요.'}</p> : null}
-      <ul className="space-y-3">{list.map((c) => <CaseCard key={c.id} c={c} start={c.id === startId} showTrack={showTrack} />)}</ul>
+      <ul className="space-y-3">{ordered.map((c) => <CaseCard key={c.id} c={c} start={c.id === startId} showTrack={showTrack} />)}</ul>
     </PageShell>
   )
 }
