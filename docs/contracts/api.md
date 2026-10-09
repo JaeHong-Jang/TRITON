@@ -98,8 +98,8 @@ interface LedgerEntry {
 // first_impression { leaning: Leaning, confidence: number }           1심 개정 전, 천칭 가림
 // reveal           { claimId: string }
 // evidence_ruling  { evidenceId: string, ruling: 'admitted' | 'struck' | null, checkerWeight: number }
-// seat_verdict     { verdict: Leaning, confidence: number, reason: string }    판사석별 판결 (reason 10자 이상)
-// appeal           { reason: string }                                   instance → instance + 1
+// seat_verdict     { verdict: Leaning, confidence: number, reason: string }    판사석별 판결 (reason 선택, 글자 수 제한 없음 — 2026-10-10 사용자 결정)
+// appeal           { reason: string }                                   instance → instance + 1 (reason 선택)
 // final            { verdict: Leaning, action: ActionLevel, reason: string, votes: { seat: number, verdict: Leaning }[] }
 ```
 
