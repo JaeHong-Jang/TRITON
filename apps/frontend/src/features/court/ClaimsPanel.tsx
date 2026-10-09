@@ -26,10 +26,10 @@ function WeightChip({ w }: { w: WeightItem }) {
   return <Badge tone={w.stance} title="천칭에 올라간 무게">무게 {fmtWeight(w.weight)}</Badge>
 }
 
-interface RowProps { w: WeightItem; canRule: boolean; lockReason: string | null; focused: boolean; pending: boolean }
+interface RowProps { w: WeightItem; canRule: boolean; focused: boolean; pending: boolean }
 
 // 근거 한 줄
-function EvidenceRow({ w, canRule, lockReason, focused, pending }: RowProps) {
+function EvidenceRow({ w, canRule, focused, pending }: RowProps) {
   const ref = useRef<HTMLLIElement>(null)
   const setFocus = useCourt((s) => s.setFocus)
   const rule = useCourt((s) => s.rule)
@@ -65,16 +65,26 @@ function EvidenceRow({ w, canRule, lockReason, focused, pending }: RowProps) {
               </button>
             ))}
           </span>
-        ) : lockReason ? <span className="ml-auto text-xs text-stone-600">{lockReason}</span> : null}
+        ) : null}
       </div>
     </li>
   )
 }
 
-interface CardProps { claim: Claim; agent: Agent | undefined; all: Claim[]; bench: Agent[]; pendingIds: Set<string>; weights: WeightItem[]; canRule: boolean; lockReason: string | null; fresh: boolean; focus: string | null }
+interface CardProps { claim: Claim; agent: Agent | undefined; all: Claim[]; bench: Agent[]; pendingIds: Set<string>; weights: WeightItem[]; canRule: boolean; fresh: boolean; focus: string | null }
+
+// 자기 수정 실패 배지 (판사가 이미 판정했으면 판정을 표시)
+function EscalatedBadge({ weights }: { weights: WeightItem[] }) {
+  const failed = weights.filter((w) => w.evidence.status !== 'verified')
+  const ruled = failed.filter((w) => w.ruled)
+  if (!ruled.length || ruled.length < failed.length) return <Badge tone="red" title="두 번 고쳐도 근거 문제가 남아 그대로 제출했습니다. 판사가 근거를 직접 확인하세요.">자기 수정 실패 · 판사 확인 필요</Badge>
+  const kinds = new Set(ruled.map((w) => w.ruled))
+  const what = kinds.size > 1 ? '판정 완료' : ruled[0].ruled === 'admitted' ? '판사가 채택' : '판사가 기각'
+  return <Badge tone="gray" title="두 번 고쳐도 근거 문제가 남았지만 판사가 이미 판정했습니다">자기 수정 실패 · {what}</Badge>
+}
 
 // 주장 카드
-function ClaimCard({ claim, agent, all, bench, pendingIds, weights, canRule, lockReason, fresh, focus }: CardProps) {
+function ClaimCard({ claim, agent, all, bench, pendingIds, weights, canRule, fresh, focus }: CardProps) {
   const ont = useOntology((s) => s.ont)
   const ref = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -94,14 +104,14 @@ function ClaimCard({ claim, agent, all, bench, pendingIds, weights, canRule, loc
       {claim.escalated || claim.revisions > 0 ? (
         <p className="mt-1.5 flex flex-wrap gap-1.5">
           {claim.revisions > 0 ? <Badge tone="gray" title="에이전트가 검증관 지적을 받아 스스로 고쳐 쓴 횟수">{claim.revisions}번 고쳐 씀</Badge> : null}
-          {claim.escalated ? <Badge tone="red" title="두 번 고쳐도 근거 문제가 남아 그대로 제출했습니다. 판사가 근거를 직접 확인하세요.">자기 수정 실패 · 판사 확인 필요</Badge> : null}
+          {claim.escalated ? <EscalatedBadge weights={weights} /> : null}
         </p>
       ) : null}
       <p className="mt-1.5 text-sm font-medium">{claim.text}</p>
       {claim.rebuts ? <p className="mt-1 text-xs text-stone-600">↳ 반박 대상: <button type="button" title={claim.rebuts} onClick={() => setFocus(claim.rebuts)} className="font-bold underline decoration-dotted hover:text-stone-900">{evidenceName(all, bench, claim.rebuts)}</button></p> : null}
       <ul className="mt-2 space-y-1.5">
         {weights.map((w) => (
-          <EvidenceRow key={w.evidenceId} w={w} canRule={canRule} lockReason={lockReason} focused={focus === w.evidenceId} pending={pendingIds.has(w.evidenceId)} />
+          <EvidenceRow key={w.evidenceId} w={w} canRule={canRule} focused={focus === w.evidenceId} pending={pendingIds.has(w.evidenceId)} />
         ))}
       </ul>
     </article>
@@ -120,6 +130,7 @@ export function ClaimsPanel() {
   return (
     <section id="sec-claims" aria-label="공개된 주장" className="rounded-xl">
       <h2 className="mb-2 text-sm font-black text-stone-700">변론 {v.shown.length}개 공개{v.writing ? ' · AI 작성 중' : ` / ${v.total}`}</h2>
+      {lockReason ? <p className="mb-2 text-xs text-stone-600">{lockReason}</p> : null}
       <HearingBar />
       {v.hidden ? <p className="rounded-lg bg-stone-100 p-3 text-sm text-stone-600">첫인상을 기록하기 전에는 변론이 가려져 있습니다. AI 작업 상태는 실행 기록에서 확인할 수 있습니다.</p> : null}
       <div className="space-y-3">
@@ -134,7 +145,7 @@ export function ClaimsPanel() {
               <div className="space-y-2">
                 {list.length ? (
                   list.map((c) => (
-                    <ClaimCard key={c.id} claim={c} agent={agents.find((a) => a.id === c.agentId)} all={v.shown} bench={agents} pendingIds={pendingIds} weights={v.weights.filter((w) => w.claimId === c.id)} canRule={canRule} lockReason={lockReason} fresh={c.id === lastId} focus={focus} />
+                    <ClaimCard key={c.id} claim={c} agent={agents.find((a) => a.id === c.agentId)} all={v.shown} bench={agents} pendingIds={pendingIds} weights={v.weights.filter((w) => w.claimId === c.id)} canRule={canRule} fresh={c.id === lastId} focus={focus} />
                   ))
                 ) : (
                   <p className="rounded-lg border border-dashed border-stone-300 p-3 text-xs text-stone-600">아직 이 쪽 주장이 공개되지 않았습니다.</p>

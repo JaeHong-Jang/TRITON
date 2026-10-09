@@ -7,7 +7,7 @@ import { Badge, type Tone } from '../ui/Badge'
 import { ErrorNote, Loading, PageTitle } from '../ui/Feedback'
 import { actionLabel } from '../lib/names'
 import { starterCaseId } from '../lib/starter'
-import { leaningLabel } from '../ui/format'
+import { leaningLabel, screeningDirectionHidden } from '../ui/format'
 import { PageShell } from '../console/parts'
 import { Term } from '../ui/Forms'
 import { INPUT, PRIMARY, SECONDARY } from '../ui/styles'
@@ -145,7 +145,7 @@ function CaseCard({ c, start, showTrack }: { c: CaseSummary; start: boolean; sho
         <p className="mt-1 text-sm text-stone-600">
           {c.docket.screening ? (c.docket.track === 'summary' ? '간단 처리 권고 이유' : '재판에 올린 이유') : '상태'}: {c.docket.screening ? (c.docket.reasons.length ? c.docket.reasons.join(' · ') : '없음') : '기사부터 읽고 첫인상을 남기면 AI 의견을 확인할 수 있습니다.'}
         </p>
-        {s ? <p className="mt-0.5 text-xs text-stone-600">AI 서기 확신도 {s.confidence}점 <span className="text-stone-600">(어느 쪽인지는 첫인상을 남긴 뒤 공개)</span></p> : null}
+        {s ? <p className="mt-0.5 text-xs text-stone-600">AI 서기 확신도 {s.confidence}점 {screeningDirectionHidden(s) ? <span className="text-stone-600">(어느 쪽인지는 첫인상을 남긴 뒤 공개)</span> : null}</p> : null}
       </div>
       <div className="flex shrink-0 gap-2 md:flex-col">
         <Link to={`/court/${c.id}`} className={`${start ? PRIMARY : `${SECONDARY} border-2 border-stone-900`} text-center md:w-36`}>

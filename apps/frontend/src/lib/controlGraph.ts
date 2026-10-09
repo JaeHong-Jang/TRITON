@@ -19,7 +19,7 @@ interface BuildControlGraphInput {
 }
 
 const STATUS_LABELS: Record<EvidenceStatus, string> = {
-  verified: '원문 확인',
+  verified: '원문 일치(인용·부재)',
   misnumbered: '문장 번호 오류',
   title: '제목 인용',
   present: '본문에 존재',
@@ -128,6 +128,7 @@ function addRecord(record: TrialRecord, article: Case | null, ontology: Ontology
 function addEvidence(claim: Claim, evidence: Evidence, side: Side | undefined, addNode: (node: RichNode) => void) {
   const evNode = evidenceId(evidence.id)
   const checkNode = checkId(evidence.id)
+  const statusLabel = evidence.status === 'verified' ? (evidence.kind === 'quote' ? '인용 원문 일치' : '핵심어 부재 확인') : STATUS_LABELS[evidence.status]
   addNode({
     id: evNode,
     kind: 'evidence',
@@ -141,13 +142,13 @@ function addEvidence(claim: Claim, evidence: Evidence, side: Side | undefined, a
     sentenceNo: evidence.sentenceNo ?? undefined,
     claimIds: [claim.id],
     evidenceIds: [evidence.id],
-    fields: fields([['근거 종류', evidence.kind], ['입장', evidence.stance], ['제출 문장', textOf(evidence.sentenceNo)], ['검증 상태', STATUS_LABELS[evidence.status]], ['실제 발견', textOf(evidence.foundIn)]]),
+    fields: fields([['근거 종류', evidence.kind], ['입장', evidence.stance], ['제출 문장', textOf(evidence.sentenceNo)], ['검증 상태', statusLabel], ['실제 발견', textOf(evidence.foundIn)]]),
   })
   addNode({
     id: checkNode,
     kind: 'check',
     group: 'checker',
-    label: STATUS_LABELS[evidence.status],
+    label: statusLabel,
     detail: '코드가 원문 위치와 형식을 검증한 결과입니다. 이 결과는 주장 타당성이나 최종 판결이 아닙니다.',
     claimId: claim.id,
     evidenceId: evidence.id,
@@ -196,7 +197,7 @@ function addOntology(ontology: Ontology | null, addNode: (node: RichNode) => voi
   }
   for (const status of Object.keys(ontology.evidence_status) as EvidenceStatus[]) {
     const spec = ontology.evidence_status[status] as StatusFull
-    addNode({ id: statusRuleId(status), kind: 'rule', group: 'ontology', label: spec.label, detail: spec.voids_claim ? '이 상태는 같은 주장 근거 전체를 무효화할 수 있습니다.' : '근거 검증 상태 규칙입니다.', status, fields: fields([['가중치 배수', String(spec.factor)], ['상태', status]]) })
+    addNode({ id: statusRuleId(status), kind: 'rule', group: 'ontology', label: status === 'verified' ? STATUS_LABELS[status] : spec.label, detail: spec.voids_claim ? '이 상태는 같은 주장 근거 전체를 무효화할 수 있습니다.' : '근거 검증 상태 규칙입니다.', status, fields: fields([['가중치 배수', String(spec.factor)], ['상태', status]]) })
   }
   for (const level of Object.keys(ontology.actions) as ActionLevel[]) {
     const spec = ontology.actions[level]
@@ -299,7 +300,7 @@ function arrayOfStrings(value: unknown): string[] {
 // 판결 라벨 생성
 function verdictLabel(entry: LedgerEntry): string {
   if (entry.type === 'appeal') return '항소 기록'
-  const verdict = entry.data.verdict === 'clickbait' ? '낚시성' : entry.data.verdict === 'not_clickbait' ? '낚시성 아님' : '판결'
+  const verdict = entry.data.verdict === 'clickbait' ? '낚시성이다' : entry.data.verdict === 'not_clickbait' ? '낚시성 아니다' : '판결'
   return entry.type === 'final' ? `최종 ${verdict}` : `${entry.judge.seat}석 ${verdict}`
 }
 

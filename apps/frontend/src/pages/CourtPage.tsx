@@ -12,6 +12,7 @@ import { useAutoReveal } from '../features/court/useAutoReveal'
 import { evidenceText, useCourtView } from '../features/court/view'
 import { ExecutionGraph } from '../features/execution/ExecutionGraph'
 import CourtStage from '../scene2d/CourtStage'
+import { seatCount } from '../lib/trial'
 import { ErrorNote, Loading } from '../ui/Feedback'
 
 // 화면 폭이 모바일(768px 미만)인지 알려 주는 훅
@@ -42,8 +43,10 @@ function SceneHost({ mini = false }: { mini?: boolean }) {
     focusId: focus,
     verdict: v.state.final?.verdict ?? null,
     appealed: v.current > 1 && !v.state.final,
+    settled: !!v.state.final || v.state.instances[v.viewInstance].seats.length >= seatCount(v.viewInstance),
     onPick: (id: string) => setFocus(focus === id ? null : id),
   }
+  const selected = !mini && !v.hidden ? v.focusEvidence : null
   return (
     <div className={`court-domain-host ${mini ? 'court-domain-host-mini' : ''}`}>
       <div className="court-scene-heading">
@@ -59,10 +62,12 @@ function SceneHost({ mini = false }: { mini?: boolean }) {
           </div>
         ) : null}
       </div>
-      <div className="court-scene-footer">
-        {v.hidden ? <p className="court-evidence-summary" aria-label="근거 공개 안내">첫인상을 기록하면 AI 변론과 근거가 공개됩니다.</p> : null}
-        {!mini && !v.hidden && v.focusEvidence ? <p className="court-selected-evidence" aria-label="선택한 근거">{evidenceText(v.focusEvidence)}{v.focusEvidence.status === 'misnumbered' && v.focusEvidence.foundIn ? ` · 실제 원문 #${v.focusEvidence.foundIn}` : ''}</p> : null}
-      </div>
+      {v.hidden || selected ? (
+        <div className="court-scene-footer">
+          {v.hidden ? <p className="court-evidence-summary" aria-label="근거 공개 안내">첫인상을 기록하면 AI 변론과 근거가 공개됩니다.</p> : null}
+          {selected ? <p className="court-selected-evidence" aria-label="선택한 근거">{evidenceText(selected)}{selected.status === 'misnumbered' && selected.foundIn ? ` · 실제 원문 #${selected.foundIn}` : ''}</p> : null}
+        </div>
+      ) : null}
     </div>
   )
 }

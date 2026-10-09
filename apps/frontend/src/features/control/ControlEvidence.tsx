@@ -2,12 +2,13 @@
 import { useMemo, useState } from 'react'
 import type { Agent, Claim, Evidence, EvidenceStatus, Instance, LedgerEntry, Ruling, TrialRecord } from '../../api/types'
 import { evidenceName } from '../../lib/names'
+import { verifiedLabel } from '../../ui/format'
 
 type EvidenceFilter = EvidenceStatus | 'all'
 type EvidenceRow = { name: string; claim: Claim; evidence: Evidence; agent: Agent | null; ruling: Ruling | null; ruledAt: string | null }
 
 const STATUS_LABELS: Record<EvidenceStatus, string> = {
-  verified: '원문 대조 통과',
+  verified: verifiedLabel(),
   misnumbered: '문장 번호 오류',
   title: '제목 인용',
   present: '부재 주장 실패',
@@ -100,15 +101,15 @@ export function ControlEvidence({ record, ledger, hidden, instance, onSelect, se
       </header>
       <dl className="cr-metrics">
         <div><dt>제출 근거</dt><dd>{total}개</dd></div>
-        <div><dt>원문 대조 통과</dt><dd>{ratioText(verified, total)}</dd></div>
+        <div><dt>{verifiedLabel()}</dt><dd>{ratioText(verified, total)}</dd></div>
         <div><dt>사람 검토</dt><dd>{ratioText(reviewed, total)}</dd></div>
       </dl>
       {visible.length ? (
         <div className="cr-evidence-grid">
           {visible.map(({ name, claim, evidence, agent, ruling, ruledAt }) => (
-            <button key={evidence.id} type="button" className={`cr-evidence-cell cr-evidence-${evidence.status}`} title={`${evidence.id} · ${evidenceText(evidence)} · ${STATUS_HELP[evidence.status]}`} aria-label={`${name} · ${STATUS_LABELS[evidence.status]} · ${agentLabel(agent, claim)} · ${evidenceText(evidence)} · ${rulingLabel(ruling)}`} aria-pressed={selectedId === evidence.id || selectedId === `evidence:${evidence.id}`} onClick={() => onSelect(`evidence:${evidence.id}`)}>
+            <button key={evidence.id} type="button" className={`cr-evidence-cell cr-evidence-${evidence.status}`} title={`${evidence.id} · ${evidenceText(evidence)} · ${STATUS_HELP[evidence.status]}`} aria-label={`${name} · ${evidence.status === 'verified' ? verifiedLabel(evidence.kind) : STATUS_LABELS[evidence.status]} · ${agentLabel(agent, claim)} · ${evidenceText(evidence)} · ${rulingLabel(ruling)}`} aria-pressed={selectedId === evidence.id || selectedId === `evidence:${evidence.id}`} onClick={() => onSelect(`evidence:${evidence.id}`)}>
               <strong>{evidence.status === 'verified' ? '✓' : '!'} {name}</strong>
-              <span className="cr-cell-top"><b>{STATUS_LABELS[evidence.status]}</b><small>{agent?.name ?? claim.agentId}</small></span>
+              <span className="cr-cell-top"><b>{evidence.status === 'verified' ? verifiedLabel(evidence.kind) : STATUS_LABELS[evidence.status]}</b><small>{agent?.name ?? claim.agentId}</small></span>
               <small>{rulingLabel(ruling)}{ruledAt ? ` · ${new Date(ruledAt).toLocaleTimeString('ko-KR', { hour12: false })}` : ''}</small>
             </button>
           ))}

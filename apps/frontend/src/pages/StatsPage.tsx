@@ -4,7 +4,7 @@ import { api } from '../api/client'
 import type { EvidenceStatus } from '../api/types'
 import { PageShell } from '../console/parts'
 import { ErrorNote, Loading, PageTitle } from '../ui/Feedback'
-import { pct } from '../ui/format'
+import { pct, verifiedLabel } from '../ui/format'
 import { statusLabel, useOntology } from '../ui/ontology'
 import { useAsync } from '../ui/useAsync'
 
@@ -113,7 +113,7 @@ export default function StatsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <BarList
           title="근거 검증 상태"
-          rows={(Object.keys(s.evidenceStatus) as EvidenceStatus[]).map((k) => ({ label: statusLabel(ont, k), value: s.evidenceStatus[k], text: String(s.evidenceStatus[k]), color: 'bg-stone-700' }))}
+          rows={(Object.keys(s.evidenceStatus) as EvidenceStatus[]).map((k) => ({ label: k === 'verified' ? verifiedLabel() : statusLabel(ont, k), value: s.evidenceStatus[k], text: String(s.evidenceStatus[k]), color: 'bg-stone-700' }))}
         />
         <BarList
           title="주장 유형별 건수"

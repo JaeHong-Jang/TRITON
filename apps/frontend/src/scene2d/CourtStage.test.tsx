@@ -38,7 +38,7 @@ describe('석조 법정의 공개 경계', () => {
     const view = scene(false)
     view.weights = [{ ...weight, evidence: { ...evidence, status: 'verified' }, weight: 0, fate: 'void', voidReason: 'perjury', ruled: null }]
     const html = renderToStaticMarkup(<CourtStage view={view} speakingClaim={null} activity={[]} currentSeat={null} />)
-    expect(html).toContain('코드 검증: 원문 검증 통과')
+    expect(html).toContain('코드 검증: 인용 원문 일치')
     expect(html).toContain('주장 안에 원문 불일치가 있어 무게 제외')
     expect(html).not.toContain('코드 검증: 주장 묶음 원문 검증 실패')
   })
@@ -66,7 +66,10 @@ describe('석조 법정의 공개 경계', () => {
     const absence = { ...evidence, id: 'a', kind: 'absence' as const, sentenceNo: null, quote: null, keyword: '2021', status: 'verified' as const, foundIn: null }
     view.weights = [{ ...weight, evidenceId: 'a', evidence: absence, ruled: null }]
     const html = renderToStaticMarkup(<CourtStage view={view} speakingClaim={null} activity={[]} currentSeat={null} />)
-    expect(html).toContain("제목의 &#x27;2021&#x27;이(가) 본문에 없음 · 코드가 본문 전체에서 확인")
+    expect(html).toContain("제목의 &#x27;2021&#x27;이 본문에 없음 · 코드가 본문 전체에서 확인")
     expect(html).toContain('판사 판단 전')
+    expect(html).toContain('무게 ')
+    view.settled = true
+    expect(renderToStaticMarkup(<CourtStage view={view} speakingClaim={null} activity={[]} currentSeat={null} />)).toContain('개별 판정 없음')
   })
 })

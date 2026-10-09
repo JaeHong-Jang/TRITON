@@ -44,8 +44,17 @@ function selectIdOf(event: AgentEvent): string | null {
   return null
 }
 
+// 이벤트 에이전트 역할 이름
+function actorLabel(agentId: string, record: TrialRecord | null): string {
+  const seat = /-([PDO])(\d+)$/.exec(agentId)
+  if (seat) return seat[1] === 'O' ? '재판연구관' : `${seat[1] === 'P' ? '검사' : '변호인'} ${seat[2]}`
+  if (agentId === 'clerk') return '서기'
+  if (agentId === 'checker') return '코드 검증관'
+  return record?.bench.find((agent) => agent.id === agentId)?.name ?? '에이전트'
+}
+
 // 이벤트 로그 항목
-function eventItem(event: AgentEvent, index: number): LogItem {
+function eventItem(event: AgentEvent, index: number, record: TrialRecord | null): LogItem {
   const code = event.agentId === 'checker' || event.kind === 'check' || event.kind === 'tool'
   const text = event.text
   return {
@@ -54,9 +63,9 @@ function eventItem(event: AgentEvent, index: number): LogItem {
     order: event.seq,
     source: code ? 'code' : 'ai',
     kind: EVENT_LABELS[event.kind],
-    actor: code ? '코드 검증관' : event.agentId,
+    actor: code ? '코드 검증관' : actorLabel(event.agentId, record),
     text,
-    detail: [event.reason, event.nodeId ? `노드 ${event.nodeId}` : '', event.fromNode ? `이전 ${event.fromNode}` : '', event.subjectAgentId ? `대상 ${event.subjectAgentId}` : ''].filter(Boolean).join(' · '),
+    detail: [event.reason, event.nodeId ? `노드 ${event.nodeId}` : '', event.fromNode ? `이전 ${event.fromNode}` : '', event.subjectAgentId ? `대상 ${actorLabel(event.subjectAgentId, record)}` : ''].filter(Boolean).join(' · '),
     selectId: selectIdOf(event),
     attempt: event.attempt ?? null,
     error: event.kind === 'error',
@@ -93,7 +102,7 @@ function buildLog(record: TrialRecord | null, run: JobInfo | null, ledger: Ledge
   const human = ledger.filter((entry) => entry.instance === instance).map(ledgerItem)
   if (hidden) return human
   const events = run?.events.length ? run.events : record?.trace ?? []
-  const machine = events.map(eventItem).map((item) => ({ ...item, selectId: item.attempt && run?.attempt && item.attempt !== run.attempt ? null : item.selectId && record?.claims.some((claim) => item.selectId === `claim:${claim.id}`) ? item.selectId : null }))
+  const machine = events.map((event, index) => eventItem(event, index, record)).map((item) => ({ ...item, selectId: item.attempt && run?.attempt && item.attempt !== run.attempt ? null : item.selectId && record?.claims.some((claim) => item.selectId === `claim:${claim.id}`) ? item.selectId : null }))
   if (run?.error) {
     machine.push({
       id: `run-error:${run.id}`,

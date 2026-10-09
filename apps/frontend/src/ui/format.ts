@@ -9,7 +9,17 @@ export function withGa(name: string): string {
 }
 
 // 낚시성 여부 라벨
-export const leaningLabel = (l: string | null) => (l === 'clickbait' ? '낚시성' : l === 'not_clickbait' ? '낚시성 아님' : '미정')
+export const leaningLabel = (l: string | null) => (l === 'clickbait' ? '낚시성이다' : l === 'not_clickbait' ? '낚시성 아니다' : '미정')
+
+// 원문 일치 검증 종류 라벨
+export function verifiedLabel(kind?: 'quote' | 'absence'): string {
+  return kind === 'quote' ? '인용 원문 일치' : kind === 'absence' ? '핵심어 부재 확인' : '원문 일치(인용·부재)'
+}
+
+// 서기 권고 방향 비공개 여부
+export function screeningDirectionHidden(screening: { isClickbait?: boolean } | null): boolean {
+  return typeof screening?.isClickbait !== 'boolean'
+}
 
 // 한국 시각 문자열
 export function fmtTime(iso: string): string {

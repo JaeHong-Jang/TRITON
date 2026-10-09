@@ -23,7 +23,7 @@ export const ONTOLOGY: Ontology = {
   claim_types: CLAIM_TYPES,
   evidence_kinds: { quote: { label: '본문 인용' }, absence: { label: '핵심어 부재' } },
   evidence_status: {
-    verified: { label: '원문 확인', factor: 1 },
+    verified: { label: '원문 일치(인용·부재)', factor: 1 },
     misnumbered: { label: '문장 번호 오류', factor: 1 },
     title: { label: '제목 인용·증거 아님', factor: 0 },
     present: { label: '핵심어가 본문에 있음', factor: 0 },

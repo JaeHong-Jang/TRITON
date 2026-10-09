@@ -92,6 +92,18 @@ describe('buildControlGraph 공개 범위', () => {
 })
 
 describe('buildControlGraph 원문 검증 관계', () => {
+  it('인용과 부재는 종류별 이름을 쓰고 서버 온톨로지 이름은 표시용으로 변환한다', () => {
+    const ontology = { ...ONTOLOGY, evidence_status: { ...ONTOLOGY.evidence_status, verified: { label: '원문 확인', factor: 1 } } }
+    const g = graph({ mode: 'connected', ontology, record: record([claim('c-label', { evidence: [evidence('e-quote'), evidence('e-absence', { kind: 'absence', quote: null, keyword: '지원책', sentenceNo: null, foundIn: null })] })]) })
+    expect(g.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'check:e-quote', label: '인용 원문 일치' }),
+      expect.objectContaining({ id: 'check:e-absence', label: '핵심어 부재 확인' }),
+      expect.objectContaining({ id: 'rule:status:verified', label: '원문 일치(인용·부재)' }),
+    ]))
+    expect(g.nodes.find((n) => n.id === 'evidence:e-quote')?.fields).toContainEqual({ label: '검증 상태', value: '인용 원문 일치' })
+    expect(g.nodes.find((n) => n.id === 'evidence:e-absence')?.fields).toContainEqual({ label: '검증 상태', value: '핵심어 부재 확인' })
+  })
+
   it('문장 번호 오류는 제출 위치와 실제 발견 위치를 별개로 표시한다', () => {
     const ev = evidence('e-mis', { sentenceNo: 1, foundIn: 2, status: 'misnumbered' })
     const g = graph({ record: record([claim('c-mis', { evidence: [ev] })]) })
@@ -157,6 +169,11 @@ describe('buildControlGraph 온톨로지 연결', () => {
 })
 
 describe('buildControlGraph 장부와 안정 ID', () => {
+  it.each(['clickbait', 'not_clickbait'])('판결 %s는 법정과 같은 방향 이름을 쓴다', (verdict) => {
+    const g = graph({ ledger: [ledger('F1', 'final', { verdict })] })
+    expect(g.nodes.find((n) => n.id === 'judgment:F1')?.label).toBe(`최종 ${verdict === 'clickbait' ? '낚시성이다' : '낚시성 아니다'}`)
+  })
+
   it('일반 법정 현재 심급 장부만 반영하고 최신 null 판정 해제를 따른다', () => {
     const base = record([claim('c-ledger', { evidence: [evidence('e-ledger')] })])
     const g = graph({

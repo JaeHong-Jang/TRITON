@@ -1,6 +1,7 @@
 // 사건별 근거 그래프 (에이전트 → 주장 → 근거 → 기사 문장)
 import { useMemo, useState } from 'react'
 import type { EvidenceStatus, Sentence, Stance, TrialRecord } from '../../api/types'
+import { verifiedLabel } from '../../ui/format'
 import { claimLabel, statusLabel, useOntology } from '../../ui/ontology'
 import { chainOf, COLS, layoutEvidence, type LEdge, type LNode } from './evidenceLayout'
 import { wrap2 } from './graphModel'
@@ -103,6 +104,7 @@ function Node({ n, state, selected, onPick, statusText }: { n: LNode; state: 'id
 export function EvidenceGraph({ rec, sentences }: { rec: TrialRecord; sentences: Sentence[] }) {
   const ont = useOntology((s) => s.ont)
   const g = useMemo(() => layoutEvidence(rec, sentences, (t) => claimLabel(ont, t)), [rec, sentences, ont])
+  const evidenceKinds = useMemo(() => new Map(rec.claims.flatMap((claim) => claim.evidence.map((evidence) => [evidence.id, evidence.kind] as const))), [rec])
   const byId = useMemo(() => new Map(g.nodes.map((n) => [n.id, n])), [g])
   const [pick, setPick] = useState<string | null>(null)
   const chain = pick && byId.has(pick) ? chainOf(g, pick) : null
@@ -113,7 +115,7 @@ export function EvidenceGraph({ rec, sentences }: { rec: TrialRecord; sentences:
       <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-stone-600">
         <span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-pro" />찬성</span>
         <span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-con" />반대</span>
-        <span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-emerald-600" />원문 확인</span>
+        <span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-emerald-600" />{verifiedLabel()}</span>
         <span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-amber-600" />번호 오류</span>
         <span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-red-600" />위증 의심</span>
         <span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-stone-400" />무게 0</span>
@@ -125,7 +127,7 @@ export function EvidenceGraph({ rec, sentences }: { rec: TrialRecord; sentences:
           {heads.map(([c, label]) => <text key={c} x={COLS[c as 'agent'].x + 4} y={14} fontSize={11} fontWeight={800} fill="#a8a29e">{label}</text>)}
           <g transform="translate(0 22)">
             {g.edges.map((e) => <Edge key={e.id} e={e} a={byId.get(e.from)!} b={byId.get(e.to)!} state={chain ? (chain.edges.has(e.id) ? 'on' : 'off') : 'idle'} />)}
-            {g.nodes.map((n) => <Node key={n.id} n={n} selected={pick === n.id} state={chain ? (chain.nodes.has(n.id) ? 'on' : 'off') : 'idle'} onPick={(id) => setPick((p) => (p === id ? null : id))} statusText={n.status ? statusLabel(ont, n.status) : ''} />)}
+            {g.nodes.map((n) => <Node key={n.id} n={n} selected={pick === n.id} state={chain ? (chain.nodes.has(n.id) ? 'on' : 'off') : 'idle'} onPick={(id) => setPick((p) => (p === id ? null : id))} statusText={n.status === 'verified' ? verifiedLabel(evidenceKinds.get(n.id)) : n.status ? statusLabel(ont, n.status) : ''} />)}
           </g>
         </svg>
       </div>

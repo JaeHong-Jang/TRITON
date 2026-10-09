@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { Agent, Case, Claim, EvidenceStatus, Leaning, Stance } from '../api/types'
 import type { AgentActivity } from '../lib/activity'
+import { verifiedLabel } from '../ui/format'
 import { balanceOf, fmtWeight, type WeightItem } from '../lib/scale'
 import './traditional-court.css'
 
@@ -16,6 +17,7 @@ export interface SceneView {
   focusId: string | null
   verdict: Leaning | null
   appealed: boolean
+  settled?: boolean
   onPick: (evidenceId: string) => void
 }
 
@@ -31,8 +33,7 @@ export interface StageProps {
 const COURTROOM_SRC = '/art/stone-tribunal.png'
 const CHARACTER_SRC = '/art/judgeman-3d.png'
 
-const STATUS_LABEL: Record<EvidenceStatus, string> = {
-  verified: '원문 검증 통과',
+const STATUS_LABEL: Record<Exclude<EvidenceStatus, 'verified'>, string> = {
   misnumbered: '문장 번호 보정',
   title: '제목에서만 확인',
   present: '부재 주장 불일치',
@@ -71,20 +72,27 @@ function evidenceLocation(item: WeightItem): string {
 function evidenceExcerpt(item: WeightItem): string {
   if (item.evidence.kind === 'absence') {
     const kw = item.evidence.keyword ?? ''
-    return item.evidence.status === 'verified' ? `제목의 '${kw}'이(가) 본문에 없음 · 코드가 본문 전체에서 확인` : `제목의 '${kw}'이(가) 본문에 없다는 주장 · 코드 확인 결과 본문에 있음`
+    return item.evidence.status === 'verified' ? `제목의 '${kw}'${josaGa(kw)} 본문에 없음 · 코드가 본문 전체에서 확인` : `제목의 '${kw}'${josaGa(kw)} 본문에 없다는 주장 · 코드 확인 결과 본문에 있음`
   }
   const text = item.evidence.quote ?? item.evidence.keyword ?? '제출된 원문 단서'
   return text.length > 58 ? `${text.slice(0, 58)}…` : text
 }
 
-// 판사 판단 문구
-function rulingLabel(item: WeightItem): string {
-  return item.ruled ? RULING_LABEL[item.ruled] : RULING_LABEL.undecided
+// 판사 판단 문구 (판결이 끝났으면 미판정 근거는 개별 판정 없음)
+function rulingLabel(item: WeightItem, settled: boolean): string {
+  return item.ruled ? RULING_LABEL[item.ruled] : settled ? '개별 판정 없음' : RULING_LABEL.undecided
+}
+
+// 받침에 따른 주격 조사
+function josaGa(word: string): string {
+  const code = (word.at(-1) ?? '').charCodeAt(0)
+  if (code >= 0xac00 && code <= 0xd7a3) return (code - 0xac00) % 28 ? '이' : '가'
+  return '013678'.includes(word.at(-1) ?? '') ? '이' : '가'
 }
 
 // 코드 검증 문구
 function checkerLabel(item: WeightItem): string {
-  return STATUS_LABEL[item.evidence.status]
+  return item.evidence.status === 'verified' ? verifiedLabel(item.evidence.kind === 'absence' ? 'absence' : 'quote') : STATUS_LABEL[item.evidence.status]
 }
 
 // 근거 정렬
@@ -203,16 +211,16 @@ function CourtPicture() {
 }
 
 // 근거 선택 버튼
-function EvidenceButton({ item, selected, onPick }: { item: WeightItem; selected: boolean; onPick: (evidenceId: string) => void }) {
+function EvidenceButton({ item, selected, settled, onPick }: { item: WeightItem; selected: boolean; settled: boolean; onPick: (evidenceId: string) => void }) {
   const status = checkerLabel(item)
-  const ruling = rulingLabel(item)
+  const ruling = rulingLabel(item, settled)
   const aria = `${STANCE_LABEL[item.stance]} ${evidenceTitle(item)} ${status} ${ruling}`
 
   return (
     <button className={`trad-court__evidenceButton trad-court__evidenceButton--${item.stance}`} type="button" aria-pressed={selected} aria-label={aria} data-selected={selected ? 'true' : 'false'} onClick={() => onPick(item.evidenceId)}>
       <span className="trad-court__buttonTop">
         <strong>{evidenceTitle(item)}</strong>
-        <em>{fmtWeight(item.weight)}점</em>
+        <em>무게 {fmtWeight(item.weight)}</em>
       </span>
       <span className="trad-court__excerpt">{evidenceExcerpt(item)}</span>
       <span className="trad-court__meta">
@@ -246,7 +254,7 @@ function WeightBar({ weights }: { weights: WeightItem[] }) {
 }
 
 // 공개 근거 조작부
-function EvidenceStrip({ weights, focusId, onPick }: { weights: WeightItem[]; focusId: string | null; onPick: (evidenceId: string) => void }) {
+function EvidenceStrip({ weights, focusId, settled, onPick }: { weights: WeightItem[]; focusId: string | null; settled: boolean; onPick: (evidenceId: string) => void }) {
   const grouped = groupedWeights(weights)
 
   return (
@@ -261,7 +269,7 @@ function EvidenceStrip({ weights, focusId, onPick }: { weights: WeightItem[]; fo
                 <small>{grouped[stance].length}개</small>
               </header>
               <div className="trad-court__buttonGrid">
-                {grouped[stance].length ? grouped[stance].map((item) => <EvidenceButton key={item.evidenceId} item={item} selected={focusId === item.evidenceId} onPick={onPick} />) : <p className="trad-court__none">해당 편 근거 없음</p>}
+                {grouped[stance].length ? grouped[stance].map((item) => <EvidenceButton key={item.evidenceId} item={item} selected={focusId === item.evidenceId} settled={settled} onPick={onPick} />) : <p className="trad-court__none">해당 편 근거 없음</p>}
               </div>
             </section>
           ))}
@@ -281,7 +289,7 @@ export default function CourtStage({ view, mini = false }: StageProps) {
         <CourtPicture />
       </div>
       {!view.hidden ? <WeightBar weights={view.weights} /> : null}
-      {!view.hidden && !mini ? <EvidenceStrip weights={view.weights} focusId={view.focusId} onPick={view.onPick} /> : null}
+      {!view.hidden && !mini ? <EvidenceStrip weights={view.weights} focusId={view.focusId} settled={!!view.settled} onPick={view.onPick} /> : null}
     </section>
   )
 }
