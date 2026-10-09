@@ -10,8 +10,8 @@ import { useCourt } from './store'
 import { useCourtView } from './view'
 
 const GROUPS: { stance: Stance; title: string; head: string }[] = [
-  { stance: 'pro', title: '찬성 · 낚시성이다', head: 'bg-pro-soft text-pro' },
-  { stance: 'con', title: '반대 · 낚시성 아니다', head: 'bg-con-soft text-con' },
+  { stance: 'pro', title: '찬성 · 낚시성이다', head: 'text-pro' },
+  { stance: 'con', title: '반대 · 낚시성 아니다', head: 'text-con' },
 ]
 
 // 근거 무게 칩
@@ -20,14 +20,15 @@ function WeightChip({ w }: { w: WeightItem }) {
     const why = w.voidReason === 'struck' ? '기각됨' : w.voidReason === 'perjury' ? '위증으로 무효' : '증거 아님'
     return <Badge tone="gray" title={w.voidReason === 'perjury' ? '위증 의심 근거가 있어 이 주장의 모든 근거가 무효입니다' : why}>무효 ✕ {why}</Badge>
   }
-  if (w.fate === 'halved') return <Badge tone="amber" title="검증된 반박으로 절반">무게 {fmtWeight(w.weight)} · 반박으로 절반</Badge>
+  if (w.fate === 'challenged') return <Badge tone="gray" title="판사가 반박을 채택하기 전에는 무게가 그대로입니다">무게 {fmtWeight(w.weight)} · 이의 제기됨 · 판사가 반박을 채택하면 절반</Badge>
+  if (w.fate === 'halved') return <Badge tone="amber" title="판사가 반박을 채택했습니다">무게 {fmtWeight(w.weight)} · 반박 채택으로 절반</Badge>
   return <Badge tone={w.stance} title="천칭에 올라간 무게">무게 {fmtWeight(w.weight)}</Badge>
 }
 
-interface RowProps { w: WeightItem; canRule: boolean; focused: boolean }
+interface RowProps { w: WeightItem; canRule: boolean; lockReason: string | null; focused: boolean }
 
 // 근거 한 줄
-function EvidenceRow({ w, canRule, focused }: RowProps) {
+function EvidenceRow({ w, canRule, lockReason, focused }: RowProps) {
   const ref = useRef<HTMLLIElement>(null)
   const setFocus = useCourt((s) => s.setFocus)
   const rule = useCourt((s) => s.rule)
@@ -62,16 +63,16 @@ function EvidenceRow({ w, canRule, focused }: RowProps) {
               </button>
             ))}
           </span>
-        ) : null}
+        ) : lockReason ? <span className="ml-auto text-xs text-stone-600">{lockReason}</span> : null}
       </div>
     </li>
   )
 }
 
-interface CardProps { claim: Claim; agent: Agent | undefined; weights: WeightItem[]; canRule: boolean; fresh: boolean; focus: string | null }
+interface CardProps { claim: Claim; agent: Agent | undefined; weights: WeightItem[]; canRule: boolean; lockReason: string | null; fresh: boolean; focus: string | null }
 
 // 주장 카드
-function ClaimCard({ claim, agent, weights, canRule, fresh, focus }: CardProps) {
+function ClaimCard({ claim, agent, weights, canRule, lockReason, fresh, focus }: CardProps) {
   const ont = useOntology((s) => s.ont)
   const ref = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -97,7 +98,7 @@ function ClaimCard({ claim, agent, weights, canRule, fresh, focus }: CardProps) 
       {claim.rebuts ? <p className="mt-1 text-xs text-stone-600">↳ 상대 근거 <b>{claim.rebuts}</b>를 겨냥한 반박</p> : null}
       <ul className="mt-2 space-y-1.5">
         {weights.map((w) => (
-          <EvidenceRow key={w.evidenceId} w={w} canRule={canRule} focused={focus === w.evidenceId} />
+          <EvidenceRow key={w.evidenceId} w={w} canRule={canRule} lockReason={lockReason} focused={focus === w.evidenceId} />
         ))}
       </ul>
     </article>
@@ -109,7 +110,7 @@ export function ClaimsPanel() {
   const v = useCourtView()
   const focus = useCourt((s) => s.focus)
   if (!v) return null
-  const canRule = v.live && (v.phase === 'hearing' || v.phase === 'review' || v.phase === 'seats' || v.phase === 'decision')
+  const { canRule, rulingLockReason: lockReason } = v
   const lastId = v.live && v.phase === 'hearing' ? v.shown.at(-1)?.id : undefined
   const agents = v.rec?.bench ?? []
   return (
@@ -122,11 +123,14 @@ export function ClaimsPanel() {
           const list = v.shown.filter((c) => c.stance === g.stance)
           return (
             <div key={g.stance}>
-              <h3 className={`mb-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-black ${g.head}`}>{g.title} <span className="font-normal">({list.length})</span></h3>
+              <h3 className={`mb-2 flex flex-wrap items-baseline gap-x-2 text-sm font-black ${g.head}`}>
+                {g.title}
+                <span className="text-xs font-normal text-stone-600">주장 {list.length} · 무게 {fmtWeight(v.balance[g.stance])}</span>
+              </h3>
               <div className="space-y-2">
                 {list.length ? (
                   list.map((c) => (
-                    <ClaimCard key={c.id} claim={c} agent={agents.find((a) => a.id === c.agentId)} weights={v.weights.filter((w) => w.claimId === c.id)} canRule={canRule} fresh={c.id === lastId} focus={focus} />
+                    <ClaimCard key={c.id} claim={c} agent={agents.find((a) => a.id === c.agentId)} weights={v.weights.filter((w) => w.claimId === c.id)} canRule={canRule} lockReason={lockReason} fresh={c.id === lastId} focus={focus} />
                   ))
                 ) : (
                   <p className="rounded-lg border border-dashed border-stone-300 p-3 text-xs text-stone-600">아직 이 쪽 주장이 공개되지 않았습니다.</p>

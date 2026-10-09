@@ -14,6 +14,9 @@ import { claimLabel, useOntology } from '../ui/ontology'
 import { CARD, INPUT, PRIMARY, SECONDARY } from '../ui/styles'
 import { useAsync } from '../ui/useAsync'
 
+// 장부 기록이 아닌 동작에 쓰는 막힘 안내 머리말
+const NOT_YET = '아직 진행할 수 없어요 · '
+
 const COND_NOTE: Record<string, string> = {
   A: '기준선: 아무 도움 없이 판단할 때의 정확도를 잽니다.',
   B: 'AI 권고가 판단을 끌어당기는지 봅니다.',
@@ -135,7 +138,7 @@ function StartForm({ onStart }: { onStart: (s: LabSession) => void }) {
         <input value={judge} onChange={(e) => setJudge(e.target.value)} className={`${INPUT} block font-normal`} />
       </label>
       <div className="max-w-xs">
-        <GuardedButton className={PRIMARY} why={why} onGo={start}>세션 시작</GuardedButton>
+        <GuardedButton className={PRIMARY} why={why} onGo={start} blockedPrefix={NOT_YET}>세션 시작</GuardedButton>
         {err ? <p role="alert" className="mt-1 text-sm text-red-700">{err}</p> : null}
       </div>
     </section>
@@ -284,7 +287,7 @@ function VariantForm() {
         </select>
       </div>
       {job ? <ProgressBar value={job.total ? job.done / job.total : 0} label={`${job.step} (${job.done}/${job.total})`} /> : null}
-      <GuardedButton className={`${SECONDARY} font-bold aria-disabled:opacity-60`} why={why} onGo={make}>변형 사건 만들기</GuardedButton>
+      <GuardedButton className={`${SECONDARY} font-bold aria-disabled:opacity-60`} why={why} onGo={make} blockedPrefix={NOT_YET}>변형 사건 만들기</GuardedButton>
       {err ? <p role="alert" className="text-sm text-red-700">{err}</p> : null}
       {made ? <p className="text-sm">조작 실험 사건 <b>‘{made.title}’</b>을(를) 만들었습니다. <Link className="font-bold underline" to={`/court/${made.id}`}>법정에서 열기</Link></p> : null}
     </section>

@@ -2,12 +2,13 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api } from '../api/client'
-import type { ActivityItem, Dashboard } from '../api/types'
+import type { ActivityItem, Dashboard, Policy } from '../api/types'
 import { useDashboard } from '../console/DashboardContext'
 import { ago, BTN, BTN_DARK, Meter, PageFrame, Panel, PANEL } from '../console/parts'
 import { jobAttemptLabel, runStatusLabel } from '../lib/execution'
 import { ErrorNote, Loading } from '../ui/Feedback'
 import { pct } from '../ui/format'
+import { useAsync } from '../ui/useAsync'
 
 type Good = 'good' | 'warn' | 'bad' | 'none'
 
@@ -28,7 +29,7 @@ function judge(v: number | null, goodAt: number, badAt: number, higherBetter: bo
 }
 
 // 지표 타일 하나
-function Kpi({ label, value, note, rate, good = 'none', unit, sample }: { label: string; value: string; note: string; rate?: number | null; good?: Good; unit?: string; sample?: number }) {
+function Kpi({ label, value, note, rate, good = 'none', unit, sample, scope }: { label: string; value: string; note: string; rate?: number | null; good?: Good; unit?: string; sample?: number; scope?: string }) {
   const t = TONE[good]
   return (
     <div className={`${PANEL} tribunal-kpi flex flex-col`}>
@@ -41,9 +42,23 @@ function Kpi({ label, value, note, rate, good = 'none', unit, sample }: { label:
         {unit && value !== '-' ? <span className="ml-1 text-sm font-bold text-stone-500">{unit}</span> : null}
       </p>
       {rate !== undefined ? <div className="mt-3"><Meter value={rate ?? 0} tone={t.bar} label={label} /></div> : <div className="mt-3 h-1.5" />}
-      <p className="mt-3 text-[12.5px] leading-relaxed text-stone-600">{note}</p>
+      {sample !== undefined && scope ? <p className="mt-2 text-[11.5px] font-semibold tabular-nums text-stone-500">표본 {sample}건 · {scope}</p> : null}
+      <p className="mt-2 text-[12.5px] leading-relaxed text-stone-600">{note}</p>
     </div>
   )
+}
+
+// 지표에서 이어진 운영 판단 한 줄
+function Decision({ k, policy }: { k: Dashboard['kpis']; policy: Policy | null }) {
+  if (!policy) return null
+  const acc = k.screeningAccuracy
+  const low = acc !== null && acc < 0.8
+  const text = low
+    ? `그래서: 서기 정확도 ${pct(acc)}가 기준(80%)에 못 미쳐 약식 처리(AI 단독 처리)를 ${policy.summaryEnabled ? '켜 둔 상태입니다. 끄거나 기준을 높이는 것을 검토하세요' : '꺼 두었습니다'}. 모든 사건은 사람 판사가 재판합니다.`
+    : acc === null
+      ? `그래서: 서기 정확도를 아직 잴 수 없어 약식 처리(AI 단독 처리)를 ${policy.summaryEnabled ? '켜 둔 상태입니다' : '꺼 두었습니다'}.`
+      : `그래서: 서기 정확도 ${pct(acc)}로 기준(80%)을 넘어 약식 처리(AI 단독 처리)를 ${policy.summaryEnabled ? `확신도 ${policy.summaryThreshold}점 이상 사건에 허용합니다` : '켤 수 있지만 지금은 꺼 두었습니다'}.`
+  return <p className="rounded-xl border border-stone-300 bg-stone-50 px-4 py-2.5 text-[13px] font-semibold leading-relaxed text-stone-800" role="note">{text}</p>
 }
 
 // 진행 중인 작업 목록
@@ -151,6 +166,7 @@ function IntakeButton() {
 // 대시보드 컴포넌트
 export default function DashboardPage() {
   const { data: d, error } = useDashboard()
+  const { data: policy } = useAsync(() => api.policy(), [])
   if (!d) return error ? <ErrorNote message={error} /> : <Loading />
   const k = d.kpis
   return (
@@ -168,7 +184,7 @@ export default function DashboardPage() {
         <img src="/art/stone-tribunal.png" alt="" className="tribunal-hero-art" />
         <div className="tribunal-hero-copy">
           <h2>기사를 살피고,<br />근거에 따라 판단합니다.</h2>
-          <p className="tribunal-hero-description">AI는 주장을 펼치고, 코드는 근거를 확인합니다.<br />최종 판결은 사람이 내립니다.</p>
+          <p className="tribunal-hero-description max-w-none!"><b>문제</b> 낚시성 기사(제목이 본문과 다른 기사)를 가려냅니다.<br /><b>방법</b> AI 검사·변호가 근거로 다투고 코드가 인용을 원문과 대조합니다.<br /><b>판결</b> 최종 판결은 사람이 내립니다.<br /><b>근거</b> 모든 판단을 장부에 남겨 AI를 어디까지 믿을 수 있는지 잽니다.</p>
           <div className="tribunal-hero-actions">
             <Link to="/cases" className="tribunal-hero-primary">기사 등록하기 <span aria-hidden>↗</span></Link>
             <Link to="/agents" className="tribunal-hero-secondary">AI 작업실 둘러보기 <span aria-hidden>→</span></Link>
@@ -182,19 +198,20 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-3">
               <Kpi label="접수된 사건" value={String(d.cases)} unit="건" note="지금까지 법정에 올라온 기사 수입니다." />
               <Kpi label="재판 중" value={String(d.inTrial)} unit="건" note="판사가 아직 최종 판결을 내리지 않은 사건입니다." />
-              <Kpi label="확정된 판결" value={String(d.finals)} unit="건" note="사람 판사가 마무리한 사건입니다. 신뢰도 숫자는 여기서 나옵니다." />
+              <Kpi label="확정된 판결" value={String(d.finals)} unit="건" note="사람 판사가 마무리한 사건입니다. 서기 정확도는 이 확정 사건을 기준으로 잽니다." />
             </div>
           </div>
           <div>
             <h3 className="mb-2 text-xs font-bold tracking-wide text-stone-500">AI를 얼마나 믿어도 되는가</h3>
             <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-6 [&>*]:min-[520px]:col-span-3 min-[760px]:[&>*]:col-span-2 min-[760px]:[&>*:nth-child(n+4)]:col-span-3">
-              <Kpi sample={d.finals} label="서기 판별 정확도" value={k.screeningAccuracy === null ? '-' : pct(k.screeningAccuracy)} rate={k.screeningAccuracy} good={judge(k.screeningAccuracy, 0.8, 0.6, true)} note="AI 서기의 권고가 정답과 맞은 비율. 낮으면 약식 권고 범위를 좁혀야 합니다." />
-              <Kpi sample={d.finals} label="자기 수정률" value={k.selfCorrectionRate === null ? '-' : pct(k.selfCorrectionRate)} rate={k.selfCorrectionRate} good={judge(k.selfCorrectionRate, 0.7, 0.4, true)} note="AI가 틀린 근거를 스스로 고쳐 통과시킨 비율. 높을수록 사람 손이 덜 갑니다." />
-              <Kpi sample={d.finals} label="위증률" value={k.perjuryRate === null ? '-' : pct(k.perjuryRate)} rate={k.perjuryRate} good={judge(k.perjuryRate, 0.05, 0.15, false)} note="위증 = 기사 원문에 없는 문장을 지어내 인용한 것. 그런 근거의 비율이며 낮을수록 믿을 수 있습니다." />
+              <Kpi sample={k.samples.screening} scope="확정 사건 기준" label="서기 판별 정확도" value={k.screeningAccuracy === null ? '-' : pct(k.screeningAccuracy)} rate={k.screeningAccuracy} good={judge(k.screeningAccuracy, 0.8, 0.6, true)} note="AI 서기의 권고가 정답과 맞은 비율. 낮으면 약식 권고 범위를 좁혀야 합니다." />
+              <Kpi sample={k.samples.selfCorrection} scope="공개된 재판 기록 기준" label="자기 수정률" value={k.selfCorrectionRate === null ? '-' : pct(k.selfCorrectionRate)} rate={k.selfCorrectionRate} good={judge(k.selfCorrectionRate, 0.7, 0.4, true)} note="AI가 틀린 근거를 스스로 고쳐 통과시킨 비율. 높을수록 사람 손이 덜 갑니다." />
+              <Kpi sample={k.samples.perjury} scope="공개된 재판 기록 기준" label="위증률" value={k.perjuryRate === null ? '-' : pct(k.perjuryRate)} rate={k.perjuryRate} good={judge(k.perjuryRate, 0.05, 0.15, false)} note="위증 = 기사 원문에 없는 문장을 지어내 인용한 것. 그런 근거의 비율이며 낮을수록 믿을 수 있습니다." />
               <Kpi label="사람에게 넘긴 주장" value={String(k.escalations)} unit="건" good={k.escalations === 0 ? 'good' : 'warn'} note="두 번 고쳐도 틀려서 AI가 포기하고 판사에게 넘긴 주장 수. 사람이 꼭 봐야 하는 지점입니다." />
-              <Kpi label="사람이 바로잡은 횟수" value={String(k.humanOverrides)} unit="회" note="판사가 AI 근거를 직접 채택·기각한 횟수. 사람이 실제로 통제한다는 증거입니다." />
+              <Kpi label="사람이 바로잡은 횟수" value={String(k.humanOverrides)} unit="회" note="검증관이 무효로 본 근거를 채택하거나 유효로 본 근거를 기각한 횟수. 사람이 AI 판정을 실제로 통제한다는 증거입니다." />
             </div>
           </div>
+          <Decision k={k} policy={policy} />
           <Panel title="지금 작동 중인 작업" aside={d.activeJobs.length ? `${d.activeJobs.length}건 진행` : '대기'}>
             <Jobs jobs={d.activeJobs} />
           </Panel>

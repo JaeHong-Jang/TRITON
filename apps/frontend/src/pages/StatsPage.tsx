@@ -91,7 +91,7 @@ export default function StatsPage() {
         <Tile label="AI 서기 정확도" value={ratio(s.screening.correct, s.screening.total)} note={`${s.screening.correct}/${s.screening.total} · 판결과 일치 ${s.screening.agreeWithFinal}건`} />
         <Tile label="판결 정확도" value={ratio(s.judges.correct, s.judges.total)} note={`${s.judges.correct}/${s.judges.total}`} />
         <Tile label="판사석 일치율" value={ratio(s.seatAgreement.agree, s.seatAgreement.total)} note={`${s.seatAgreement.agree}/${s.seatAgreement.total}`} />
-        <Tile label="첫인상 → 판결 확신 변화" value={s.confidenceShift.mean === null || s.confidenceShift.n < MIN_N ? `아직 표본이 적어요 (${s.confidenceShift.n}건)` : `${s.confidenceShift.mean > 0 ? '+' : ''}${s.confidenceShift.mean}점`} note={`낚시성 방향 평균 · ${s.confidenceShift.n}건`} />
+        <Tile label="첫인상 → 판결 확신 변화" value={s.confidenceShift.mean === null || s.confidenceShift.n < MIN_N ? `아직 표본이 적어요 (${s.confidenceShift.n}건)` : `${s.confidenceShift.mean > 0 ? '+' : ''}${s.confidenceShift.mean.toFixed(1)}점`} note={`낚시성 방향 평균 · ${s.confidenceShift.n}건`} />
       </TileGroup>
       <TileGroup title="에이전트의 자기 점검과 사람의 개입" sub="에이전트가 스스로 어디까지 고치고, 언제 사람이 개입해야 하는지 보여 줍니다.">
         <Tile label="에이전트 자기 수정률" value={s.agents.selfCorrectionRate === null ? '아직 표본이 적어요' : pct(s.agents.selfCorrectionRate)} note="처음 초안에서 걸린 근거를 고쳐서 통과시킨 비율" />
@@ -100,7 +100,7 @@ export default function StatsPage() {
         <Tile label="조작 실험 사건 (레드팀)" value={s.redteam.variants} note={`일부러 비튼 기사 중 서기 권고가 뒤집힌 ${s.redteam.screeningFlipped}건 (AI가 속은 정도)`} />
       </TileGroup>
       <TileGroup title="비용 · 성능" sub="모델 호출 기록을 모은 값입니다. 역할별로 어디에 시간과 호출이 쓰였는지 아래에서 볼 수 있어요.">
-        <Tile label="모델 호출" value={`${s.cost.calls.toLocaleString('ko-KR')}회`} />
+        <Tile label="모델 호출" value={`${s.cost.calls.toLocaleString('ko-KR')}회`} note={`실패 호출 ${s.cost.failedCalls.toLocaleString('ko-KR')}회 포함`} />
         <Tile label="토큰" value={(s.cost.promptTokens + s.cost.outputTokens).toLocaleString('ko-KR')} note={`입력 ${s.cost.promptTokens.toLocaleString('ko-KR')} · 출력 ${s.cost.outputTokens.toLocaleString('ko-KR')}`} />
         <Tile label="모델 시간 합계" value={fmtSeconds(s.cost.seconds)} />
         <Tile label="호출당 평균" value={s.cost.calls ? fmtSeconds(s.cost.seconds / s.cost.calls) : '-'} note="한 번 호출에 걸린 시간" />
@@ -119,7 +119,7 @@ export default function StatsPage() {
           legend={[['bg-pro', '찬성 (낚시성이다)'], ['bg-con', '반대 (낚시성 아니다)'], ['bg-stone-500', '반박']].map(([c, l]) => <span key={l} className="inline-flex items-center gap-1"><span className={`h-3 w-3 rounded-sm ${c}`} />{l}</span>)}
           rows={s.byClaimType.map((t) => ({ label: t.label, value: t.count, text: `${t.count}건 · 검증 ${pct(t.verifiedRate)}`, color: STANCE_BAR[t.stance] ?? 'bg-stone-500' }))}
         />
-        <BarList title="분야별 사건 수 · 서기 재현율(낚시성 기사를 잡아낸 비율)" rows={s.byCategory.map((c) => ({ label: c.category, value: c.cases, text: `${c.cases}건 · 서기 재현율 ${c.cases < MIN_N || c.screeningRecall === null ? '아직 표본이 적어요' : pct(c.screeningRecall)}`, color: 'bg-stone-700' }))} />
+        <BarList title="분야별 사건 수 · 서기 재현율(낚시성 기사를 잡아낸 비율)" rows={s.byCategory.map((c) => ({ label: c.category, value: c.cases, text: `${c.cases}건 · 서기 재현율 ${c.screeningSample < MIN_N || c.screeningRecall === null ? '아직 표본이 적어요' : pct(c.screeningRecall)} (표본 ${c.screeningSample}건)`, color: 'bg-stone-700' }))} />
         <BarList title="실험실 조건별 정답률" rows={s.lab.map((l) => ({ label: `${COND[l.condition] ?? `조건 ${l.condition}`} (${l.sessions}세션)`, value: l.verdicts ? l.correct / l.verdicts : 0, max: 1, text: `${l.correct}/${l.verdicts} · ${ratio(l.correct, l.verdicts)}`, color: 'bg-stone-700' }))} />
       </div>
     </PageShell>

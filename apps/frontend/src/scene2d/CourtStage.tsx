@@ -216,7 +216,8 @@ function EvidenceButton({ item, selected, onPick }: { item: WeightItem; selected
         <span>코드 검증: {status}</span>
         <span>사람 판단: {ruling}</span>
         {item.voidReason === 'perjury' ? <span>주장 안에 원문 불일치가 있어 무게 제외</span> : null}
-        {item.fate === 'halved' ? <span>반박으로 무게 절반 반영</span> : null}
+        {item.fate === 'challenged' ? <span>이의 제기됨 · 판사가 반박을 채택하면 절반</span> : null}
+        {item.fate === 'halved' ? <span>반박 채택으로 무게 절반</span> : null}
       </span>
     </button>
   )
@@ -227,7 +228,7 @@ function EvidenceStrip({ weights, focusId, onPick }: { weights: WeightItem[]; fo
   const grouped = groupedWeights(weights)
 
   return (
-    <details className="trad-court__evidenceStrip" data-scene="traditional-court-evidence" aria-label="공개 근거 선택">
+    <details open className="trad-court__evidenceStrip" data-scene="traditional-court-evidence" aria-label="공개 근거 선택">
       <summary>공개된 근거 {weights.length}개</summary>
       {weights.length ? (
         <div className="trad-court__evidencePanel">

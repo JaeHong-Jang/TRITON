@@ -44,14 +44,14 @@ export function ReasonBox({ value, onChange, label }: { value: string; onChange:
 }
 
 // 막힌 이유를 처음엔 차분히, 눌러 본 뒤엔 붉게 알리는 버튼
-export function GuardedButton({ why, onGo, className, children }: { why: string | null; onGo: () => void; className: string; children: ReactNode }) {
+export function GuardedButton({ why, onGo, className, children, blockedPrefix = '아직 기록할 수 없어요 · ' }: { why: string | null; onGo: () => void; className: string; children: ReactNode; blockedPrefix?: string }) {
   const [tried, setTried] = useState(false)
   return (
     <div>
       <button type="button" className={className} aria-disabled={!!why} onClick={() => (why ? setTried(true) : onGo())}>{children}</button>
       {why ? (
         <p role="status" className={`mt-1.5 text-xs ${tried ? 'font-semibold text-red-700' : 'text-stone-600'}`}>
-          {tried ? '아직 기록할 수 없어요 · ' : ''}{why}
+          {tried ? blockedPrefix : ''}{why}
         </p>
       ) : null}
     </div>

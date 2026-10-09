@@ -60,16 +60,14 @@ function SceneHost({ mini = false }: { mini?: boolean }) {
           </div>
         ) : null}
       </div>
-      {mini ? null : (
-        <div className="court-scene-footer">
-          <p className="court-evidence-summary" aria-label="근거 가중치 합계">
-            {v.hidden ? '첫인상을 기록하면 AI 변론과 근거가 공개됩니다.' : (
-              <><span>근거 가중치</span><b>찬성 {fmtWeight(v.balance.pro)}</b><b>반대 {fmtWeight(v.balance.con)}</b><span>기사의 판결을 뜻하지 않습니다.</span></>
-            )}
-          </p>
-          {!v.hidden && v.focusEvidence ? <p className="court-selected-evidence" aria-label="선택한 근거">{evidenceText(v.focusEvidence)}{v.focusEvidence.status === 'misnumbered' && v.focusEvidence.foundIn ? ` · 실제 원문 #${v.focusEvidence.foundIn}` : ''}</p> : null}
-        </div>
-      )}
+      <div className="court-scene-footer">
+        <p className="court-evidence-summary" aria-label="근거 가중치 합계">
+          {v.hidden ? '첫인상을 기록하면 AI 변론과 근거가 공개됩니다.' : (
+            <><span>근거 가중치</span><b>찬성 {fmtWeight(v.balance.pro)}</b><b>반대 {fmtWeight(v.balance.con)}</b><span>기사의 판결을 뜻하지 않습니다.</span></>
+          )}
+        </p>
+        {!mini && !v.hidden && v.focusEvidence ? <p className="court-selected-evidence" aria-label="선택한 근거">{evidenceText(v.focusEvidence)}{v.focusEvidence.status === 'misnumbered' && v.focusEvidence.foundIn ? ` · 실제 원문 #${v.focusEvidence.foundIn}` : ''}</p> : null}
+      </div>
     </div>
   )
 }
@@ -101,6 +99,7 @@ export default function CourtPage() {
     <div className="court-domain-page flex min-h-full min-w-0 flex-col lg:h-full">
       <div className="court-domain-heading">
         <h2 title={v.caseData.title}>{v.caseData.title}</h2>
+        <p className="court-judge-question"><span>판단할 질문</span> 이 기사의 제목이 본문 내용을 제대로 반영하나요?</p>
         <div className="court-procedure-nav">
           <InstanceStepper />
           <StepIndicator phase={v.live ? v.phase : 'final'} />

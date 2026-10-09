@@ -118,6 +118,31 @@ export function ExecutionGraph({ view, workflow, mock = false, title = '실행 �
       ) : null}
     </>
   )
+  const plain = !view ? '이 기록에는 AI 작업 기록이 없습니다.' : run ? `AI 작업 ${runStatusLabel(run.status)}${current ? ` · ${current.label}` : ''}` : current ? `현재 단계 · ${current.label}` : 'AI 작업 전입니다.'
+  const agentsLine = currentAgents.length ? (
+    <div className="mt-2 rounded-lg bg-stone-50 p-2 text-xs text-stone-700">
+      <b className="text-stone-800">현재 역할</b>{' '}
+      {currentAgents.map((a) => `${a.label} · ${a.nodeLabel}${a.status === 'error' ? ' · 오류' : a.status === 'review' ? ' · 검토 필요' : a.status === 'running' ? ' · 작업 중' : ''}`).join(' / ')}
+    </div>
+  ) : null
+  if (compact) {
+    return (
+      <section className="rounded-xl border border-stone-300 bg-white p-4 shadow-sm" aria-label={title}>
+        <h2 className="text-sm font-black text-stone-700">{title}</h2>
+        <p className="mt-1 text-sm text-stone-800" role="status">{plain}</p>
+        {run?.error ? <p role="alert" className="mt-2 rounded-md bg-red-50 p-2 text-sm text-red-800">{run.error}</p> : null}
+        {run && (canRetryJob(run) || canCancelJob(run)) ? <div className="mt-2"><JobControls job={run} busy={busy} onRetry={onRetry} onCancel={onCancel} /></div> : null}
+        <details className="mt-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-bold text-stone-700">자세히</summary>
+          <p className="mt-2 text-xs leading-relaxed text-stone-600">{summary}</p>
+          {run ? <p className="mt-1 text-xs text-stone-500">{runStatusLabel(run.status)} · {jobAttemptLabel(run)}</p> : null}
+          {view?.phase ? <p className="mt-2 text-xs"><b>현재 상태</b> {current?.label ?? view.phase} · {view.reason}</p> : null}
+          {agentsLine}
+          {flow}
+        </details>
+      </section>
+    )
+  }
   return (
     <section className="rounded-xl border border-stone-300 bg-white p-4 shadow-sm" aria-label={title}>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -136,18 +161,7 @@ export function ExecutionGraph({ view, workflow, mock = false, title = '실행 �
       </div>
       {run?.error ? <p role="alert" className="mt-3 rounded-md bg-red-50 p-2 text-sm text-red-800">{run.error}</p> : null}
       {view?.phase ? <p className="mt-3 rounded-lg bg-stone-50 p-2 text-sm"><b>현재 상태</b> {current?.label ?? view.phase} · {view.reason}</p> : null}
-      {compact && currentAgents.length ? (
-        <div className="mt-2 rounded-lg bg-stone-50 p-2 text-xs text-stone-700">
-          <b className="text-stone-800">현재 역할</b>{' '}
-          {currentAgents.map((a) => `${a.label} · ${a.nodeLabel}${a.status === 'error' ? ' · 오류' : a.status === 'review' ? ' · 검토 필요' : a.status === 'running' ? ' · 작업 중' : ''}`).join(' / ')}
-        </div>
-      ) : null}
-      {compact ? (
-        <details className="mt-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
-          <summary className="cursor-pointer text-sm font-bold text-stone-700">실행 흐름 자세히</summary>
-          {flow}
-        </details>
-      ) : flow}
+      {flow}
     </section>
   )
 }

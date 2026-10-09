@@ -54,7 +54,7 @@ export function PageFrame({ title, sub, actions, children }: { title: string; su
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-[28px] font-bold tracking-tight">{title}</h2>
-          {sub ? <p className="mt-1 max-w-2xl text-sm leading-relaxed text-stone-600">{sub}</p> : null}
+          {sub ? <p className="mt-1 text-sm leading-relaxed text-stone-600">{sub}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
       </div>

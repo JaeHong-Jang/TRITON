@@ -6,8 +6,8 @@ import { chainOf, COLS, layoutEvidence, type LEdge, type LNode } from './evidenc
 import { wrap2 } from './graphModel'
 
 const STANCE_PAINT: Record<Stance | 'derived', { fill: string; stroke: string; text: string }> = {
-  pro: { fill: '#fff1e6', stroke: '#c2410c', text: '#9a3412' },
-  con: { fill: '#e8efff', stroke: '#1d4ed8', text: '#1e40af' },
+  pro: { fill: '#f7e8e5', stroke: '#922a22', text: '#7a211b' },
+  con: { fill: '#e7edf6', stroke: '#1f3a66', text: '#182f54' },
   derived: { fill: '#f1f5f9', stroke: '#94a3b8', text: '#475569' },
 }
 const STATUS_PAINT: Record<EvidenceStatus, { fill: string; stroke: string; text: string }> = {

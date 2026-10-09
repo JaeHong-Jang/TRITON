@@ -107,7 +107,7 @@ export function weightTag(item: WeightItem): string {
 
 // 근거 접근성 설명
 export function weightAria(item: WeightItem, agentName: string): string {
-  const fate = item.fate === 'void' ? ' · 무효' : item.fate === 'halved' ? ' · 절반' : ''
+  const fate = item.fate === 'void' ? ' · 무효' : item.fate === 'challenged' ? ' · 이의 제기됨(반박 채택 시 절반)' : item.fate === 'halved' ? ' · 반박 채택으로 절반' : ''
   return `${weightTag(item)} ${item.stance === 'pro' ? '찬성' : '반대'} 근거 · ${agentName} 제출 · 무게 ${fmtWeight(item.weight)}${fate}`
 }
 

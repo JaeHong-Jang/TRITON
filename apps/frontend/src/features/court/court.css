@@ -15,6 +15,8 @@
 .court-domain-page { --court-night: #30231d; --court-line: #d4c9b9; --court-paper: #f6f2ea; --court-gold: #b8955c; --color-stone-50: #f8f5ef; --color-stone-100: #eee8de; --color-stone-200: #e0d7ca; --color-stone-300: #cbbfae; --color-stone-400: #a09282; --color-stone-500: #817362; --color-stone-600: #6b5e4f; --color-stone-700: #55483c; --color-stone-800: #40342b; --color-stone-900: #30231d; background: var(--court-paper); color: #342b25; }
 .court-domain-heading { flex-shrink: 0; padding: 22px 28px 0; border-bottom: 1px solid var(--court-line); background: var(--court-paper); }
 .court-domain-heading h2 { max-width: 1100px; margin: 0; font-family: var(--font-sans); font-size: clamp(17px, 1.5vw, 23px); font-weight: 700; line-height: 1.55; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.court-judge-question { max-width: 1100px; margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: #6f6254; }
+.court-judge-question span { margin-right: 6px; font-weight: 700; color: #5a4a36; }
 .court-procedure-nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 13px 24px; padding: 18px 0 15px; }
 .court-procedure-nav ol { flex-wrap: wrap; gap: 5px; }
 .court-procedure-nav button { border-radius: 4px; min-height: 32px; }
@@ -27,6 +29,7 @@
 .court-scene-body { position: relative; flex: 1; min-height: 0; display: flex; }
 .court-working-note { position: absolute; right: 16px; top: 16px; display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: #30231ded; border: 1px solid #9b784b; border-radius: 4px; color: #f7e5be; font-size: 12px; }
 .court-working-note .court-dot { width: 6px; height: 6px; border-radius: 50%; background: #e9c387; }
+.court-domain-host .trad-court__evidenceGroup { align-content: start; }
 .court-scene-footer { flex-shrink: 0; padding: 16px 24px 20px; color: #c8baa4; border-top: 1px solid #514032; }
 .court-evidence-summary { display: flex; flex-wrap: wrap; gap: 7px 16px; font-size: 11px; line-height: 1.6; }
 .court-evidence-summary b { font-weight: 600; color: #f4e7d0; }
@@ -56,7 +59,7 @@
   .court-domain-heading { padding: 17px 18px 0; }
   .court-procedure-nav { gap: 12px; padding: 13px 0; }
   .court-procedure-nav button { font-size: 11px; }
-  .court-mobile-stage { height: 272px; flex-shrink: 0; }
+  .court-mobile-stage { height: 330px; flex-shrink: 0; }
   .court-scene-heading { padding: 10px 16px; font-size: 9px; }
   .court-scene-name { font-size: 14px; }
   .court-case-file { padding: 22px 18px; }

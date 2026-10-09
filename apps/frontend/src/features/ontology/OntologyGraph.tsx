@@ -5,8 +5,8 @@ import { buildGraph, kindsOf, touching, wrap2, type ClaimTypeFull, type GEdge, t
 
 // 색 종류별 칠
 const PAINT: Record<Tone, { fill: string; stroke: string; text: string; solid: string }> = {
-  pro: { fill: '#fff1e6', stroke: '#c2410c', text: '#9a3412', solid: '#c2410c' },
-  con: { fill: '#e8efff', stroke: '#1d4ed8', text: '#1e40af', solid: '#1d4ed8' },
+  pro: { fill: '#f7e8e5', stroke: '#922a22', text: '#7a211b', solid: '#922a22' },
+  con: { fill: '#e7edf6', stroke: '#1f3a66', text: '#182f54', solid: '#1f3a66' },
   derived: { fill: '#f1f5f9', stroke: '#94a3b8', text: '#475569', solid: '#64748b' },
   ink: { fill: '#ffffff', stroke: '#44403c', text: '#1c1917', solid: '#1c1917' },
   ok: { fill: '#ecfdf5', stroke: '#059669', text: '#065f46', solid: '#059669' },

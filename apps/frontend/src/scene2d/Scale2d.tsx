@@ -33,6 +33,9 @@ interface BlockProps {
 
 const STANCE_FILL: Record<Stance, { base: string; light: string }> = { pro: { base: C.pro, light: C.proLight }, con: { base: C.con, light: C.conLight } }
 
+// 무게 처리 결과 설명 문구
+const FATE_NOTE = { challenged: '이의 제기됨 · 판사가 반박을 채택하면 절반', halved: '반박 채택으로 절반' }
+
 // 근거 하나를 나타내는 추
 function Block({ item, x, y, w, h, delay, focused, tone, narrow, floor, onPick }: BlockProps) {
   const isVoid = item.fate === 'void'
@@ -51,7 +54,7 @@ function Block({ item, x, y, w, h, delay, focused, tone, narrow, floor, onPick }
       <g className="c2d-drop" style={{ animationDelay: `${delay}ms` }}>
         <g className="c2d-weight" role="button" tabIndex={0} aria-label={weightAria(item, tone?.name ?? '')} data-on={focused ? '1' : '0'} onClick={press} onKeyDown={key}>
           <g className="c2d-lift">
-            <title>{weightAria(item, tone?.name ?? '')}</title>
+            <title>{weightAria(item, tone?.name ?? '') + (item.fate === 'challenged' ? ` · ${FATE_NOTE.challenged}` : item.fate === 'halved' ? ` · ${FATE_NOTE.halved}` : '')}</title>
             <rect x={-4} y={-4} width={w + 8} height={h + 8} rx={9} fill="none" stroke="#fbbf24" strokeWidth={4} className="c2d-focus" />
             <rect x={0} y={0} width={w} height={h} rx={7} fill={fill} stroke={edge} strokeWidth={4} />
             <rect x={3} y={3} width={w - 6} height={h * 0.38} rx={4} fill={light} opacity={0.55} />
@@ -63,6 +66,12 @@ function Block({ item, x, y, w, h, delay, focused, tone, narrow, floor, onPick }
             ) : (
               <text x={w / 2} y={h / 2 + 6.5} textAnchor="middle" fontSize={narrow ? 24 : 18} fontWeight={800} fill="#fff">{weightTag(item)}</text>
             )}
+            {item.fate === 'challenged' ? (
+              <g transform={`translate(${w - 4} 2)`}>
+                <circle r={11} fill="#fff" stroke="#78716c" strokeWidth={2.5} strokeDasharray="4 3" />
+                <text y={6} textAnchor="middle" fontSize={16} fontWeight={800} fill="#57534e">?</text>
+              </g>
+            ) : null}
             {item.fate === 'halved' ? (
               <g transform={`translate(${w - 4} 2)`}>
                 <circle r={11} fill="#fff" stroke={edge} strokeWidth={2.5} />

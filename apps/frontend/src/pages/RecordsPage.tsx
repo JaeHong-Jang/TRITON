@@ -25,7 +25,7 @@ function RecordsIndex() {
   if (error || !data) return <ErrorNote message={error ?? '불러오지 못했습니다'} onRetry={reload} />
   const list = data.filter((c) => c.trials.length)
   return (
-    <PageFrame title="감사 장부" sub="재판 기록과 판사 장부를 사건별로 봅니다. AI가 낸 근거와 사람이 내린 결정을 나중에 따져 볼 수 있습니다.">
+    <PageFrame title="감사 장부" sub="사건별 재판 기록과 판사 장부 · AI의 근거와 사람의 결정을 나중에 따져 봅니다">
       {list.length ? (
         <ul className="space-y-2">
           {list.map((c) => (
@@ -64,9 +64,9 @@ function InstanceSection({ rec, state, ledger, sentences }: { rec: TrialRecord; 
       <div className="grid gap-3 md:grid-cols-2">
         {(['pro', 'con'] as const).map((st) => (
           <div key={st} className="overflow-hidden rounded-xl border border-stone-200">
-            <h3 className={`flex items-center gap-2 px-3 py-2 text-sm font-black ${st === 'pro' ? 'bg-pro-soft text-pro' : 'bg-con-soft text-con'}`}>
-              <span className={`h-2 w-2 rounded-full ${st === 'pro' ? 'bg-pro' : 'bg-con'}`} aria-hidden />
+            <h3 className={`flex flex-wrap items-baseline gap-x-2 px-3 pt-3 text-sm font-black ${st === 'pro' ? 'text-pro' : 'text-con'}`}>
               {st === 'pro' ? '찬성 · 낚시성이다' : '반대 · 낚시성 아니다'}
+              <span className="text-xs font-normal text-stone-600">주장 {rec.claims.filter((c) => c.stance === st).length}</span>
             </h3>
             <ul className="space-y-2.5 p-3 text-sm">
               {rec.claims.filter((c) => c.stance === st).map((c) => (
