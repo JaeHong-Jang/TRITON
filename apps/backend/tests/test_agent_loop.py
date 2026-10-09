@@ -4,7 +4,7 @@ import json
 import pytest
 from court import intake, ontology, paths
 from court.instances import run
-from court.scale import balance
+from court.scale import balance, weights
 
 SENTENCES = [
     {"no": 1, "text": "임팩트금융은 사회 문제를 푸는 프로젝트에 투자하는 금융이다."},
@@ -85,7 +85,10 @@ def test_cross_prompts_include_opponent_claim_context():
     first = run(CASE, 1, [], Script([[prosecutor]], [[defender]]))
     record = run(CASE, 2, [first], Spy([[prosecutor]], [[defender]]))
     assert {step for _, _, step in seen} == {"plan", "draft"}
-    for system, targets, _ in seen:
+    for system, targets, step in seen:
+        if step == "draft":
+            assert '내부 id는 targetEvidenceId에만 쓰세요' in system
+            assert '"검사 1의 주장", "변호인 2의 근거"' in system
         for c in record["claims"]:
             for e in c["evidence"]:
                 if e["id"] in targets:
@@ -110,6 +113,21 @@ def test_empty_cross_submission_keeps_opponent_weight():
     assert record["claims"] and all(c["rebuts"] is None for c in record["claims"])
     assert all(balance([c])[c["stance"]] == c["strength"] for c in record["claims"])
     assert balance(record["claims"]) == balance([c for c in record["claims"] if c["rebuts"] is None])
+
+
+# 검증된 반박 제출 후 판사 채택과 취소에 따른 대상 무게 검증
+def test_verified_cross_submission_needs_judge_admission_to_halve():
+    first = run(CASE, 1, [], Script([[claim([GOOD])]]))
+    record = run(CASE, 2, [first], Script([[claim([GOOD])]]))
+    rebuttal = next(c for c in record["claims"] if c["type"] == "rebuttal")
+    target = next(c for c in record["claims"] if any(e["id"] == rebuttal["rebuts"] for e in c["evidence"]))
+    target_id = rebuttal["rebuts"]
+    rebuttal_id = rebuttal["evidence"][0]["id"]
+    assert rebuttal["evidence"][0]["status"] == "verified"
+    assert weights(record["claims"])[target_id][1] == target["strength"]
+    assert weights(record["claims"], {rebuttal_id: "admitted"})[target_id][1] == target["strength"] / 2
+    assert weights(record["claims"], {rebuttal_id: "struck"})[target_id][1] == target["strength"]
+    assert weights(record["claims"], {})[target_id][1] == target["strength"]
 
 
 # 첫 초안의 위조 인용을 수정 단계가 고친다

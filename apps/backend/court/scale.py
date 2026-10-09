@@ -1,10 +1,10 @@
-# 천칭 무게 집계 (판사 판정 제외)
+# 판사 판정과 반박 채택을 반영한 천칭 무게 집계
 from court.ontology import load
 
 _STATUS_FACTOR = {name: spec["factor"] for name, spec in load()["evidence_status"].items()}
 
 
-# 판사 판정까지 반영한 근거 하나의 무게 (반박 반감 전)
+# 반박 반감 전 판사 판정을 반영한 근거 무게 계산
 def _base_weight(claim, ev, rulings):
     ruling = rulings.get(ev["id"])
     if ruling == "admitted":
@@ -14,13 +14,13 @@ def _base_weight(claim, ev, rulings):
     return claim["strength"] * _STATUS_FACTOR[ev["status"]]
 
 
-# 근거별 무게 계산 (rulings: 근거 id → admitted/struck)
+# 근거별 판사 판정과 채택된 반박의 무게 계산
 def weights(claims, rulings=None):
     rulings = rulings or {}
     halved = {
         c["rebuts"]
         for c in claims
-        if c["rebuts"] and any(_base_weight(c, e, rulings) > 0 for e in c["evidence"])
+        if c["type"] == "rebuttal" and c["rebuts"] and any(rulings.get(e["id"]) == "admitted" for e in c["evidence"])
     }
     by_id = {}
     for claim in claims:

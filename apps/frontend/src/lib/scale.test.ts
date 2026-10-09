@@ -1,6 +1,6 @@
 // 천칭 무게 규칙 검증
 import { describe, expect, it } from 'vitest'
-import type { Claim, Evidence } from '../api/types'
+import type { Claim, Evidence, Ruling } from '../api/types'
 import { balanceOf, checkerWeight, evidenceWeights } from './scale'
 
 // 테스트용 근거
@@ -34,23 +34,23 @@ describe('evidenceWeights', () => {
     expect(w.map((x) => x.weight)).toEqual([0, 3])
   })
 
-  it('검증된 반박이 겨냥한 근거는 절반이다', () => {
+  it('검증만 된 반박은 이의 제기로 표시하고 대상 무게를 유지한다', () => {
     const target = claim('c1', [ev('e1')])
     const rebuttal = claim('c2', [ev('e2', 'verified', 'con')], { type: 'rebuttal', stance: 'con', rebuts: 'e1' })
     const w = evidenceWeights([target, rebuttal], {})
-    expect(w.find((x) => x.evidenceId === 'e1')).toMatchObject({ weight: 1, fate: 'halved' })
+    expect(w.find((x) => x.evidenceId === 'e1')).toMatchObject({ weight: 2, fate: 'challenged' })
   })
 
   it('무게 없는 반박은 대상을 줄이지 못한다', () => {
     const target = claim('c1', [ev('e1')])
     const rebuttal = claim('c2', [ev('e2', 'title', 'con')], { type: 'rebuttal', stance: 'con', rebuts: 'e1' })
-    expect(evidenceWeights([target, rebuttal], {}).find((x) => x.evidenceId === 'e1')?.weight).toBe(2)
+    expect(evidenceWeights([target, rebuttal], {}).find((x) => x.evidenceId === 'e1')).toMatchObject({ weight: 2, fate: 'challenged' })
   })
 
   it('기각된 반박은 대상을 줄이지 못한다', () => {
     const target = claim('c1', [ev('e1')])
     const rebuttal = claim('c2', [ev('e2', 'verified', 'con')], { type: 'rebuttal', stance: 'con', rebuts: 'e1' })
-    expect(evidenceWeights([target, rebuttal], { e2: 'struck' }).find((x) => x.evidenceId === 'e1')?.weight).toBe(2)
+    expect(evidenceWeights([target, rebuttal], { e2: 'struck' }).find((x) => x.evidenceId === 'e1')).toMatchObject({ weight: 2, fate: 'challenged' })
   })
 
   it('채택된 위증 반박은 대상을 절반으로 줄인다', () => {
@@ -60,11 +60,38 @@ describe('evidenceWeights', () => {
     expect(evidenceWeights([target, rebuttal], { e2: 'admitted' }).find((x) => x.evidenceId === 'e1')).toMatchObject({ weight: 1, fate: 'halved' })
   })
 
-  it('같은 근거를 여러 반박이 겨냥해도 한 번만 절반이다', () => {
+  it('같은 근거를 여러 채택된 반박이 겨냥해도 한 번만 절반이다', () => {
     const target = claim('c1', [ev('e1')], { strength: 3 })
     const r1 = claim('c2', [ev('e2', 'verified', 'con')], { type: 'rebuttal', stance: 'con', rebuts: 'e1' })
     const r2 = claim('c3', [ev('e3', 'verified', 'con')], { type: 'rebuttal', stance: 'con', rebuts: 'e1' })
-    expect(evidenceWeights([target, r1, r2], {}).find((x) => x.evidenceId === 'e1')?.weight).toBe(1.5)
+    expect(evidenceWeights([target, r1, r2], { e2: 'admitted', e3: 'admitted' }).find((x) => x.evidenceId === 'e1')?.weight).toBe(1.5)
+  })
+
+  it.each<{ rulings: Record<string, Ruling> | undefined; weights: number[]; fate: string }>([
+    { rulings: undefined, weights: [2, 2, 2], fate: 'challenged' },
+    { rulings: {}, weights: [2, 2, 2], fate: 'challenged' },
+    { rulings: { e2: 'admitted' }, weights: [1, 2, 2], fate: 'halved' },
+    { rulings: { e2: 'struck' }, weights: [2, 0, 2], fate: 'challenged' },
+    { rulings: { e1: 'admitted', e2: 'admitted' }, weights: [2, 2, 2], fate: 'counted' },
+    { rulings: { e1: 'struck', e2: 'admitted' }, weights: [0, 2, 2], fate: 'void' },
+    { rulings: { e2: 'admitted', e3: 'admitted' }, weights: [1, 2, 2], fate: 'halved' },
+    { rulings: { e2: 'struck', e3: 'admitted' }, weights: [1, 0, 2], fate: 'halved' },
+  ])('Python과 같은 반박 입력의 무게와 판정 $rulings', ({ rulings, weights, fate }) => {
+    const claims = [
+      claim('c1', [ev('e1')]),
+      claim('c2', [ev('e2', 'verified', 'con')], { type: 'rebuttal', stance: 'con', rebuts: 'e1' }),
+      claim('c3', [ev('e3', 'verified', 'con')], { type: 'rebuttal', stance: 'con', rebuts: 'e1' }),
+    ]
+    const items = evidenceWeights(claims, rulings)
+    expect(items.map((x) => x.weight)).toEqual(weights)
+    expect(items[0].fate).toBe(fate)
+  })
+
+  it('반박 근거 중 하나만 채택해도 반감하고 채택 취소 시 무게를 복원한다', () => {
+    const target = claim('c1', [ev('e1')])
+    const rebuttal = claim('c2', [ev('e2', 'verified', 'con'), ev('e3', 'fabricated', 'con')], { type: 'rebuttal', stance: 'con', rebuts: 'e1' })
+    expect(evidenceWeights([target, rebuttal], { e2: 'admitted', e3: 'struck' })[0]).toMatchObject({ weight: 1, fate: 'halved' })
+    expect(evidenceWeights([target, rebuttal], { e3: 'struck' })[0]).toMatchObject({ weight: 2, fate: 'challenged' })
   })
 
   it('접시는 제출한 쪽이 아니라 근거 입장으로 정해진다', () => {
@@ -91,5 +118,12 @@ describe('checkerWeight', () => {
   it('판사 결정을 빼고 코드 무게를 돌려준다', () => {
     const c = claim('c1', [ev('e1', 'title')])
     expect(checkerWeight([c], { e1: 'admitted' }, 'e1')).toBe(0)
+  })
+
+  it('반박 채택과 대상 기각도 코드 무게에는 반영하지 않는다', () => {
+    const target = claim('c1', [ev('e1')])
+    const rebuttal = claim('c2', [ev('e2', 'verified', 'con')], { type: 'rebuttal', stance: 'con', rebuts: 'e1' })
+    expect(checkerWeight([target, rebuttal], { e1: 'struck', e2: 'admitted' }, 'e1')).toBe(2)
+    expect(checkerWeight([target, rebuttal], { e2: 'admitted' }, 'e1')).toBe(2)
   })
 })

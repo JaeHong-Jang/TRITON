@@ -5,7 +5,7 @@ import type { Balance, Claim, Evidence, Ruling, Stance } from '../api/types'
 export const MAX_TILT = 0.35
 
 // 근거 무게 처리 결과
-export type WeightFate = 'counted' | 'halved' | 'void'
+export type WeightFate = 'counted' | 'challenged' | 'halved' | 'void'
 // 무게 무효 사유
 export type VoidReason = 'struck' | 'perjury' | 'status'
 
@@ -30,15 +30,13 @@ function baseWeight(claim: Claim, ev: Evidence): { weight: number; reason: VoidR
 }
 
 // 공개된 주장들의 근거별 무게 계산
-export function evidenceWeights(claims: Claim[], rulings: Record<string, Ruling>): WeightItem[] {
-  // 판사 결정까지 반영한 반박 전 무게
-  const preWeight = (c: Claim, e: Evidence): number => {
-    const r = rulings[e.id]
-    return r === 'admitted' ? c.strength : r === 'struck' ? 0 : baseWeight(c, e).weight
-  }
+export function evidenceWeights(claims: Claim[], rulings: Record<string, Ruling> = {}): WeightItem[] {
+  const challenged = new Set<string>()
   const halved = new Set<string>()
   for (const c of claims) {
-    if (c.type === 'rebuttal' && c.rebuts && c.evidence.some((e) => preWeight(c, e) > 0)) halved.add(c.rebuts)
+    if (c.type !== 'rebuttal' || !c.rebuts) continue
+    if (c.evidence.some((e) => rulings[e.id] === 'admitted')) halved.add(c.rebuts)
+    else challenged.add(c.rebuts)
   }
   return claims.flatMap((c) =>
     c.evidence.map((ev): WeightItem => {
@@ -49,15 +47,15 @@ export function evidenceWeights(claims: Claim[], rulings: Record<string, Ruling>
       const base = baseWeight(c, ev)
       if (base.weight === 0) return { ...item, weight: 0, fate: 'void', voidReason: base.reason }
       if (halved.has(ev.id)) return { ...item, weight: base.weight / 2, fate: 'halved', voidReason: null }
+      if (challenged.has(ev.id)) return { ...item, weight: base.weight, fate: 'challenged', voidReason: null }
       return { ...item, weight: base.weight, fate: 'counted', voidReason: null }
     }),
   )
 }
 
 // 판사 결정 없이 코드만 매긴 근거 무게
-export function checkerWeight(claims: Claim[], rulings: Record<string, Ruling>, evidenceId: string): number {
-  const { [evidenceId]: _drop, ...rest } = rulings
-  return evidenceWeights(claims, rest).find((w) => w.evidenceId === evidenceId)?.weight ?? 0
+export function checkerWeight(claims: Claim[], _rulings: Record<string, Ruling>, evidenceId: string): number {
+  return evidenceWeights(claims).find((w) => w.evidenceId === evidenceId)?.weight ?? 0
 }
 
 // 접시 합과 기울기 계산

@@ -289,15 +289,18 @@ def test_screening_without_clue_is_capped():
     assert agents.tidy_screening({**raw, "offTopicSentenceNo": 2}, [1, 2], [])["isClickbait"] is True
 
 
-# 근거 하나를 세 번 반박해도 한 번만 절반 (frontend scale.ts와 같은 규칙)
+# 같은 근거를 겨냥한 채택된 반박의 단일 반감 검증
 def test_scale_halves_once_per_target():
     from court.scale import balance, weights
 
     ev = lambda i, status="verified": {"id": i, "kind": "quote", "stance": "pro", "status": status}
     claim = lambda cid, evidence, rebuts=None: {"id": cid, "strength": 2, "evidence": evidence, "rebuts": rebuts, "type": "rebuttal" if rebuts else "x"}
     claims = [claim("C1", [ev("E1")]), *(claim(f"R{i}", [{**ev(f"RE{i}"), "stance": "con"}], "E1") for i in range(3))]
-    assert weights(claims)["E1"][1] == 1
-    assert balance(claims)["pro"] == 1
+    rulings = {f"RE{i}": "admitted" for i in range(3)}
+    assert weights(claims)["E1"][1] == 2
+    assert balance(claims)["pro"] == 2
+    assert weights(claims, rulings)["E1"][1] == 1
+    assert balance(claims, rulings)["pro"] == 1
 
 
 # 판사 판정이 반박 유효성과 근거 무게에 반영
@@ -310,10 +313,45 @@ def test_scale_rulings_precedence():
     weak = {"id": "R1", "evidence": [ev("RE1", "present")], **{**base, "rebuts": "E1", "type": "rebuttal"}}
     assert weights([target, weak])["E1"][1] == 2
     assert weights([target, weak], {"RE1": "admitted"})["E1"][1] == 1
-    assert weights([target, weak], {"E1": "struck"})["E1"][1] == 0
+    assert weights([target, weak], {"E1": "struck", "RE1": "admitted"})["E1"][1] == 0
     strong = {**weak, "evidence": [ev("RE1")]}
     assert weights([target, strong], {"RE1": "struck"})["E1"][1] == 2
-    assert weights([target, strong], {"E1": "admitted"})["E1"][1] == 2
+    assert weights([target, strong], {"E1": "admitted", "RE1": "admitted"})["E1"][1] == 2
+
+
+@pytest.mark.parametrize("rulings, expected", [
+    (None, [2, 2, 2]),
+    ({}, [2, 2, 2]),
+    ({"e2": "admitted"}, [1, 2, 2]),
+    ({"e2": "struck"}, [2, 0, 2]),
+    ({"e1": "admitted", "e2": "admitted"}, [2, 2, 2]),
+    ({"e1": "struck", "e2": "admitted"}, [0, 2, 2]),
+    ({"e2": "admitted", "e3": "admitted"}, [1, 2, 2]),
+    ({"e2": "struck", "e3": "admitted"}, [1, 0, 2]),
+])
+# 프론트와 같은 주장과 판사 판정의 반박 무게 검증
+def test_scale_rebuttal_parity(rulings, expected):
+    from court.scale import weights
+
+    claims = []
+    for i in range(1, 4):
+        stance = "pro" if i == 1 else "con"
+        claims.append({
+            "id": f"c{i}", "agentId": "a1", "round": 0, "type": "exaggeration" if i == 1 else "rebuttal",
+            "stance": stance, "text": "주장", "strength": 2, "rebuts": None if i == 1 else "e1", "revisions": 0, "escalated": False,
+            "evidence": [{"id": f"e{i}", "kind": "quote", "stance": stance, "sentenceNo": 1, "quote": "문장", "keyword": None, "status": "verified", "foundIn": 1}],
+        })
+    assert [weight for _, weight in weights(claims, rulings).values()] == expected
+
+
+# 일부 반박 근거의 채택과 채택 취소에 따른 반감 복원 검증
+def test_scale_one_admitted_rebuttal_evidence_is_enough():
+    from court.scale import weights
+
+    target = {"id": "c1", "strength": 2, "type": "exaggeration", "rebuts": None, "evidence": [{"id": "e1", "status": "verified"}]}
+    rebuttal = {"id": "c2", "strength": 2, "type": "rebuttal", "rebuts": "e1", "evidence": [{"id": "e2", "status": "verified"}, {"id": "e3", "status": "fabricated"}]}
+    assert weights([target, rebuttal], {"e2": "admitted", "e3": "struck"})["e1"][1] == 1
+    assert weights([target, rebuttal], {"e3": "struck"})["e1"][1] == 2
 
 
 # 모델 연결 실패와 반복 파싱 실패는 오류로 종료
