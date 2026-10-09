@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-07",
+  "updatedAt": "2026-10-10",
   "statuses": {
     "todo": "예정",
     "doing": "진행 중",
@@ -623,6 +623,26 @@
           "owner": "backend",
           "status": "verified",
           "verify": "./tools/checks/verify.sh --ui (실제 A.X 1→3심·모바일 통과, 백엔드 452·프론트 151·타입/빌드/하네스, 격리 서버 QA 재현 20/20, 실제 A.X 전후 품질 비교 docs/experiments/findings.md #12~14)"
+        }
+      ]
+    },
+    {
+      "id": "P18",
+      "title": "판사 화면 개선 (UI 평가 3인)",
+      "features": [
+        {
+          "id": "P18.1",
+          "title": "반박은 판사 채택 시에만 반감 · 약식 처리 끔 · 근거 판정 장부 정확성 · 판결 뒤 판정 잠금",
+          "owner": "backend",
+          "status": "verified",
+          "verify": "./tools/checks/verify.sh --ui (백엔드 462 · 프론트 192), 백엔드·프론트 천칭 같은 8가지 경우 테스트"
+        },
+        {
+          "id": "P18.2",
+          "title": "찬성 진한 붉은색·반대 남색 팔레트, 찬반 머리글 배경 제거, 한 줄 설명, 판단 질문, 무게 막대, 사람이 읽는 이름, 표본 부족 표기 통일",
+          "owner": "frontend",
+          "status": "verified",
+          "verify": "Fable 5.1 · Opus 5.5 · GPT-6-Astra 평가 → 2차 재평가 사용성 6~7 → 7.5~8, 시각 디자인 7.5 → 8. verify.sh --ui 화면 흐름과 실제 데이터 사본 38장 확인"
         }
       ]
     }
