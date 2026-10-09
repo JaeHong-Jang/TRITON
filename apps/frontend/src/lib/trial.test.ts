@@ -1,8 +1,10 @@
 // 재판 상태기계 검증
 import { describe, expect, it } from 'vitest'
-import type { Claim, Instance, Judge, Leaning, TrialRecord } from '../api/types'
+import type { Claim, Dashboard, Instance, Judge, Leaning, Stats, TrialRecord } from '../api/types'
+import { correctionCounts, DEFS, buildTrial } from '../api/mock/fixtures'
+import { handle } from '../api/mock/handlers'
 import { entryFor } from './ledger'
-import { autoAppeal, claimsNeedingManualReview, currentInstance, majorityOf, phaseOf, replay, startTrial, step, type Records, type TrialEvent, type TrialState } from './trial'
+import { autoAppeal, canRule, claimsNeedingManualReview, currentInstance, majorityOf, phaseOf, replay, rulingLockReason, startTrial, step, type Records, type TrialEvent, type TrialState } from './trial'
 
 // 테스트용 판사
 const judge = (seat: 1 | 2 | 3 = 1): Judge => ({ seat, name: '판사', soloMode: seat > 1 })
@@ -82,6 +84,27 @@ describe('1심', () => {
     expect(s.rulings).toEqual({ 'i1-C1-E': 'struck' })
   })
 
+  it('첫 판사석 판결 뒤에는 근거 채택과 기각 및 취소가 잠긴다', () => {
+    const heard = run(records, [first, ...hear(1)])
+    expect(canRule(heard, records)).toBe(true)
+    expect(rulingLockReason(heard)).toBeNull()
+    const ruled = step(heard, { type: 'rule', instance: 1, judge: judge(), evidenceId: 'i1-C1-E', ruling: 'struck' }, records)
+    const decided = step(ruled, seat(1, 1, 'clickbait'), records)
+    expect(phaseOf(decided, records)).toBe('decision')
+    expect(canRule(decided, records)).toBe(false)
+    expect(rulingLockReason(decided)).toBe('판사석 판결 뒤에는 근거 판정을 바꿀 수 없습니다')
+    for (const ruling of ['admitted', 'struck', null] as const) {
+      expect(step(decided, { type: 'rule', instance: 1, judge: judge(), evidenceId: 'i1-C1-E', ruling }, records)).toBe(decided)
+    }
+  })
+
+  it('첫인상 전과 재판 기록 대기 및 최종 확정 뒤에는 근거 판정이 불가하다', () => {
+    expect(canRule(startTrial('c'), records)).toBe(false)
+    expect(canRule(run({}, [first]), {})).toBe(false)
+    const final = run(records, [first, ...hear(1), seat(1, 1, 'clickbait'), { type: 'final', instance: 1, judge: judge(), verdict: 'clickbait', action: 'L1', reason }])
+    expect(canRule(final, records)).toBe(false)
+  })
+
   it('검증 실패 근거를 명시적으로 판정해야 판결 단계로 간다', () => {
     const recs: Records = { 1: record(1, 2, ['i1-C2']) }
     const heard = run(recs, [first, ...hear(1)])
@@ -105,6 +128,16 @@ describe('2심·3심', () => {
   it('2심은 판사석 2개가 모두 판결해야 결정 단계다', () => {
     expect(phaseOf(run(records, [...toSecond, seat(2, 1, 'clickbait')]), records)).toBe('seats')
     expect(phaseOf(run(records, [...toSecond, seat(2, 1, 'clickbait'), seat(2, 2, 'clickbait')]), records)).toBe('decision')
+  })
+
+  it('하급심 판결은 새 심급 근거 판정을 잠그지 않고 현재 심급의 첫 판결부터 잠긴다', () => {
+    const heard = run(records, toSecond)
+    expect(canRule(heard, records)).toBe(true)
+    expect(rulingLockReason(heard)).toBeNull()
+    const decided = step(heard, seat(2, 1, 'clickbait'), records)
+    expect(phaseOf(decided, records)).toBe('seats')
+    expect(canRule(decided, records)).toBe(false)
+    expect(step(decided, { type: 'rule', instance: 2, judge: judge(), evidenceId: 'i2-C1-E', ruling: 'struck' }, records)).toBe(decided)
   })
 
   it('판사석 순서를 건너뛸 수 없다', () => {
@@ -175,5 +208,40 @@ describe('entryFor', () => {
     const s = run(records, [first, ...hear(1)])
     const en = entryFor(s, { type: 'rule', instance: 1, judge: judge(), evidenceId: 'i1-C1-E', ruling: 'struck' }, records)
     expect(en.data).toEqual({ evidenceId: 'i1-C1-E', ruling: 'struck', checkerWeight: 2 })
+  })
+})
+
+describe('모의 통계 계약', () => {
+  it('실패 호출 수와 분야별 재현율의 표본 수를 반환한다', async () => {
+    const stats = await handle('GET', '/stats', undefined) as Stats
+    expect(stats.cost.failedCalls).toBe(0)
+    expect(stats.cost.failedCalls).toBeLessThanOrEqual(stats.cost.calls)
+    expect(stats.cost.byRole.reduce((n, r) => n + r.calls, 0)).toBe(stats.cost.calls)
+    expect(stats.byCategory.map((c) => c.screeningSample)).toEqual([9, 8, 10, 7, 0])
+    for (const c of stats.byCategory) {
+      expect(c.screeningSample).toBeLessThanOrEqual(c.cases)
+      expect(c.screeningRecall === null).toBe(c.screeningSample === 0)
+    }
+  })
+
+  it('대시보드 표본은 확정 사건과 공개된 근거 및 초안 실패 근거를 따른다', async () => {
+    const initial = await handle('GET', '/dashboard', undefined) as Dashboard
+    expect(initial.kpis.samples).toEqual({ screening: 0, selfCorrection: 0, perjury: 0 })
+    expect(initial.kpis.selfCorrectionRate).toBeNull()
+    const def = DEFS.find((d) => d.case.id === 'mock-002')!
+    const rec = buildTrial(def, 1, [])
+    const { firstFailed, fixed } = correctionCounts(rec.claims)
+    expect({ firstFailed, fixed }).toEqual({ firstFailed: 2, fixed: 1 })
+    const evidence = rec.claims.flatMap((c) => c.evidence)
+    const base = { caseId: def.case.id, instance: 1, judge: judge(), labSessionId: null, context: { balance: null, aiRecommendationShown: false, scaleVisible: false } }
+    await handle('POST', '/ledger', { ...base, type: 'first_impression', data: { leaning: 'not_clickbait', confidence: 70 } })
+    const open = await handle('GET', '/dashboard', undefined) as Dashboard
+    expect(open.kpis.samples).toEqual({ screening: 0, selfCorrection: firstFailed, perjury: evidence.length })
+    expect(open.kpis.selfCorrectionRate).toBe(fixed / firstFailed)
+    expect(open.kpis.perjuryRate).toBe(evidence.filter((e) => e.status === 'fabricated').length / evidence.length)
+    await handle('POST', '/ledger', { ...base, type: 'final', data: { verdict: 'not_clickbait', action: 'L0', reason } })
+    const final = await handle('GET', '/dashboard', undefined) as Dashboard
+    expect(final.kpis.samples).toEqual({ ...open.kpis.samples, screening: 1 })
+    expect(final.kpis.screeningAccuracy).toBe(1)
   })
 })

@@ -1,9 +1,9 @@
 // 모의 서버
 import { ApiError } from '../error'
 import type {
-  Case, CaseSummary, Condition, Docket, ExecutionView, Instance, JobInfo, LabSession, LedgerEntry, NewLedgerEntry, Policy, ProgressDoc, Records, RunStatus, Stats, StepStatus, TrialRecord, WorkflowDefinition,
+  Case, CaseSummary, Condition, Dashboard, Docket, ExecutionView, Instance, JobInfo, LabSession, LedgerEntry, NewLedgerEntry, Policy, ProgressDoc, Records, RunStatus, Stats, StepStatus, TrialRecord, WorkflowDefinition,
 } from '../types'
-import { buildTrial, DEFS, type CaseDef } from './fixtures'
+import { buildTrial, correctionCounts, DEFS, type CaseDef } from './fixtures'
 import { ONTOLOGY } from './ontology'
 
 const KEY = 'ai-court-mock-v1'
@@ -465,15 +465,15 @@ function stats(): Stats {
     confidenceShift: { mean: 8.4, n: 36 },
     seatAgreement: { agree: 11, total: 16 },
     byCategory: [
-      { category: '경제', cases: 9, screeningRecall: 0.78 },
-      { category: '정치', cases: 8, screeningRecall: 0.63 },
-      { category: '생활', cases: 10, screeningRecall: 0.9 },
-      { category: 'IT과학', cases: 7, screeningRecall: 0.71 },
-      { category: '스포츠', cases: 8, screeningRecall: null },
+      { category: '경제', cases: 9, screeningRecall: 0.78, screeningSample: 9 },
+      { category: '정치', cases: 8, screeningRecall: 0.63, screeningSample: 8 },
+      { category: '생활', cases: 10, screeningRecall: 0.9, screeningSample: 10 },
+      { category: 'IT과학', cases: 7, screeningRecall: 0.71, screeningSample: 7 },
+      { category: '스포츠', cases: 8, screeningRecall: null, screeningSample: 0 },
     ],
     redteam: { variants: variants.length, screeningFlipped: 0 },
     cost: {
-      calls: 214, promptTokens: 389400, outputTokens: 91200, seconds: 1342.6,
+      calls: 214, failedCalls: 0, promptTokens: 389400, outputTokens: 91200, seconds: 1342.6,
       byRole: [
         { role: 'prosecution', calls: 74, seconds: 468.2 },
         { role: 'defense', calls: 70, seconds: 441.5 },
@@ -489,6 +489,16 @@ function stats(): Stats {
       { condition: 'C', sessions: 3, verdicts: 15, correct: 12 },
     ],
   }
+}
+
+// 공개된 합성 기록의 대시보드 지표와 표본 집계
+function dashboardWithSamples(out: Dashboard): Dashboard {
+  const publicCases = new Set(ledger.filter((e) => !e.labSessionId && (e.type === 'first_impression' || e.type === 'final')).map((e) => e.caseId))
+  const claims = [...publicCases].flatMap((id) => visibleTrials(id).flatMap((t) => t.claims))
+  const { firstFailed, fixed } = correctionCounts(claims)
+  const screening = ledger.filter((e) => e.type === 'final' && !e.labSessionId && defs.get(e.caseId)?.docket.screening && defs.get(e.caseId)?.answer).length
+  const samples = { screening, selfCorrection: firstFailed, perjury: claims.reduce((n, c) => n + c.evidence.length, 0) }
+  return { ...out, kpis: { ...out.kpis, selfCorrectionRate: firstFailed ? fixed / firstFailed : null, samples } }
 }
 
 const CONDITIONS: Condition[] = [
@@ -601,7 +611,7 @@ export async function handle(method: string, rawPath: string, body: unknown): Pr
   if (/^\/(dashboard|agents|policy|intake)(\/|$)/.test(path)) {
     const out = await (await import('./console')).handleConsole(method, path, b)
     if (path === '/policy') policy = out as Policy
-    return out
+    return path === '/dashboard' ? dashboardWithSamples(out as Dashboard) : out
   }
   if (path === '/progress') return PROGRESS
   if (path === '/ontology') return ONTOLOGY

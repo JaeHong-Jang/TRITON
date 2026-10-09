@@ -16,6 +16,14 @@ export interface CaseDef {
   rebut: { pro: Raw; con: Raw }
 }
 
+// 합성 초안의 실패 근거와 수정 성공 근거 집계
+export function correctionCounts(claims: Claim[]): { firstFailed: number; fixed: number } {
+  const revised = claims.filter((c) => c.revisions > 0)
+  const firstFailed = revised.reduce((n, c) => n + c.evidence.length, 0) + claims.filter((c) => !c.revisions).reduce((n, c) => n + c.evidence.filter((e) => e.status !== 'verified').length, 0)
+  const fixed = revised.reduce((n, c) => n + c.evidence.filter((e) => e.status === 'verified').length, 0)
+  return { firstFailed, fixed }
+}
+
 // 문장 목록 만들기
 const sentences = (lines: string[]) => lines.map((text, i) => ({ no: i + 1, text }))
 // 합성 사건 만들기

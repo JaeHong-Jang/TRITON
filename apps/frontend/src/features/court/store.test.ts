@@ -1,6 +1,8 @@
 // 법정 저장소 비동기 수명주기 검증
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Case, ExecutionView, Instance, JobInfo, LedgerEntry, Records as ApiRecords, TrialRecord, WorkflowDefinition } from '../../api/types'
+import { ApiError } from '../../api/error'
+import { startTrial, type TrialState } from '../../lib/trial'
 
 const apiMock = vi.hoisted(() => ({
   records: vi.fn(),
@@ -17,7 +19,7 @@ const apiMock = vi.hoisted(() => ({
 vi.mock('../../api/client', () => ({ api: apiMock }))
 
 const { useCourt } = await import('./store')
-const { courtPhase } = await import('./view')
+const { courtPhase, courtRulingGuard } = await import('./view')
 
 // 지연 가능한 프라미스
 function deferred<T>() {
@@ -46,6 +48,15 @@ const execution = (id: string, run: JobInfo | null = null): ExecutionView => ({ 
 const job = (id: string, caseId = 'c', status: JobInfo['status'] = 'running'): JobInfo => ({ id, caseId, instance: 1, status, step: status, done: 0, total: 1, error: null, startedAt: '2026-01-01T00:00:00.000Z', attempt: 1, graphVersion: '1', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', events: [], partial: null })
 // 마이크로태스크 배수
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+// 근거가 공개된 재판 상태
+function heardState(caseId: string, instance: Instance = 1): TrialState {
+  const state = startTrial(caseId)
+  state.first = { leaning: 'clickbait', confidence: 70 }
+  for (let n = 1; n < instance; n++) state.instances[n as Instance].appeal = '충분히 긴 항소 사유입니다'
+  state.instances[instance].revealed = [`${caseId}-C1`]
+  return state
+}
 
 beforeEach(() => {
   vi.useRealTimers()
@@ -179,7 +190,7 @@ describe('court store disclosure and ledger idempotency', () => {
     await h1
   })
 
-  it('uses the same semantic request id when an unknown ledger response is retried', async () => {
+  it('reuses the same action request id when an unknown ledger response is retried', async () => {
     apiMock.records.mockResolvedValue(records('idem'))
     await useCourt.getState().open('idem')
     apiMock.postLedger.mockRejectedValueOnce(new Error('network lost after write'))
@@ -197,6 +208,74 @@ describe('court store disclosure and ledger idempotency', () => {
     expect(secondId).toBe(firstId)
   })
 
+  it.each([true, false])('records struck → admitted → struck as three actions with UUID support %s', async (uuidSupported) => {
+    if (!uuidSupported) vi.stubGlobal('crypto', undefined)
+    try {
+      const rec = record('cycle')
+      useCourt.setState({ caseId: 'cycle', records: { 1: rec }, state: heardState('cycle') })
+      const savedById = new Map<string, LedgerEntry>()
+      apiMock.postLedger.mockImplementation(async (entry) => {
+        if (!savedById.has(entry.requestId)) savedById.set(entry.requestId, { ...entry, id: `L${savedById.size + 1}`, at: '2026-01-01' })
+        return savedById.get(entry.requestId)
+      })
+
+      await useCourt.getState().rule('cycle-E1', 'struck')
+      await useCourt.getState().rule('cycle-E1', 'admitted')
+      await useCourt.getState().rule('cycle-E1', 'struck')
+
+      const ids = apiMock.postLedger.mock.calls.map(([entry]) => entry.requestId)
+      expect(ids).toHaveLength(3)
+      expect(ids.every(Boolean)).toBe(true)
+      expect(new Set(ids).size).toBe(3)
+      expect(useCourt.getState().ledger.map((e) => e.data.ruling)).toEqual(['struck', 'admitted', 'struck'])
+      expect(useCourt.getState().state?.rulings['cycle-E1']).toBe('struck')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('retries an evidence action with the original body even if its visible context changes', async () => {
+    const rec = record('retry-rule')
+    useCourt.setState({ caseId: rec.caseId, records: { 1: rec }, state: heardState(rec.caseId) })
+    apiMock.postLedger.mockRejectedValueOnce(new Error('network lost after write'))
+    await useCourt.getState().rule('retry-rule-E1', 'struck')
+    const original = apiMock.postLedger.mock.calls.at(-1)![0]
+    useCourt.setState({ records: { 1: { ...rec, claims: [{ ...rec.claims[0], strength: 3 }] } } })
+    apiMock.postLedger.mockResolvedValueOnce({ ...original, id: 'R1', at: '2026-01-01' })
+
+    await useCourt.getState().rule('retry-rule-E1', 'struck')
+
+    expect(apiMock.postLedger.mock.calls.at(-1)![0]).toEqual(original)
+    expect(useCourt.getState().ledger).toHaveLength(1)
+    expect(useCourt.getState().state?.rulings['retry-rule-E1']).toBe('struck')
+  })
+
+  it('allocates a fresh action id after a definitive validation rejection', async () => {
+    useCourt.setState({ caseId: 'rejected', records: { 1: record('rejected') }, state: heardState('rejected') })
+    apiMock.postLedger.mockRejectedValueOnce(new ApiError(422, '검증 실패'))
+    await useCourt.getState().rule('rejected-E1', 'struck')
+    const original = apiMock.postLedger.mock.calls.at(-1)![0]
+    apiMock.postLedger.mockImplementationOnce(async (entry) => ({ ...entry, id: 'R1', at: '2026-01-01' }))
+
+    await useCourt.getState().rule('rejected-E1', 'struck')
+
+    expect(apiMock.postLedger.mock.calls.at(-1)![0].requestId).not.toBe(original.requestId)
+  })
+
+  it.each([1, 2, 3] as const)('rejects ruling changes after the first seat verdict in instance %s', async (instance) => {
+    const state = heardState('locked', instance)
+    state.rulings['locked-E1'] = 'struck'
+    state.instances[instance].seats = [{ seat: 1, judge: '판사', soloMode: false, verdict: 'clickbait', confidence: 70, reason: '충분히 긴 판결 사유입니다' }]
+    useCourt.setState({ caseId: 'locked', state, records: { [instance]: record('locked', instance) } })
+
+    await useCourt.getState().rule('locked-E1', 'admitted')
+    await useCourt.getState().rule('locked-E1', null)
+
+    expect(apiMock.postLedger).not.toHaveBeenCalled()
+    expect(useCourt.getState().state).toBe(state)
+    expect(useCourt.getState().error).toBe('판사석 판결 뒤에는 근거 판정을 바꿀 수 없습니다')
+  })
+
   it('does not append duplicate ledger rows returned by semantic idempotency', async () => {
     const rec = record('dupe')
     const first: LedgerEntry = { id: 'H1', at: '2026-01-01T00:00:01.000Z', caseId: 'dupe', instance: 1, judge, labSessionId: null, type: 'first_impression', data: { leaning: 'clickbait', confidence: 70 }, context: { balance: null, aiRecommendationShown: false, scaleVisible: false } }
@@ -212,6 +291,22 @@ describe('court store disclosure and ledger idempotency', () => {
 
 
 describe('court view guards', () => {
+  it.each([1, 2, 3] as const)('locks evidence controls after the first seat verdict in instance %s', (instance) => {
+    const state = heardState('guard', instance)
+    const recs = { [instance]: record('guard', instance) }
+    expect(courtRulingGuard(state, recs, instance)).toEqual({ canRule: true, rulingLockReason: null })
+    state.instances[instance].seats = [{ seat: 1, judge: '판사', soloMode: false, verdict: 'clickbait', confidence: 70, reason: '충분히 긴 판결 사유입니다' }]
+    expect(courtRulingGuard(state, recs, instance)).toEqual({ canRule: false, rulingLockReason: '판사석 판결 뒤에는 근거 판정을 바꿀 수 없습니다' })
+  })
+
+  it('keeps previous-instance evidence controls locked while the current instance can rule', () => {
+    const state = heardState('appealed', 2)
+    state.instances[1].seats = [{ seat: 1, judge: '판사', soloMode: false, verdict: 'clickbait', confidence: 70, reason: '충분히 긴 판결 사유입니다' }]
+    const recs = { 1: record('appealed'), 2: record('appealed', 2) }
+    expect(courtRulingGuard(state, recs, 1)).toEqual({ canRule: false, rulingLockReason: '판사석 판결 뒤에는 근거 판정을 바꿀 수 없습니다' })
+    expect(courtRulingGuard(state, recs, 2)).toEqual({ canRule: true, rulingLockReason: null })
+  })
+
   it('blocks verdict phase while a partial failed run is not done', () => {
     const rec = record('partial')
     const state = {

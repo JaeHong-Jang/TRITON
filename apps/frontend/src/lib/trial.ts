@@ -71,6 +71,17 @@ export function phaseOf(s: TrialState, records: Records): Phase {
   return inst.seats.length < seatCount(i) ? 'seats' : 'decision'
 }
 
+// 판사석 판결 뒤 근거 판정 잠금 사유
+export function rulingLockReason(s: TrialState, i: Instance = currentInstance(s)): string | null {
+  return s.instances[i].seats.length ? '판사석 판결 뒤에는 근거 판정을 바꿀 수 없습니다' : null
+}
+
+// 현재 심급의 근거 판정 허용 여부
+export function canRule(s: TrialState, records: Records): boolean {
+  const phase = phaseOf(s, records)
+  return !rulingLockReason(s) && (phase === 'hearing' || phase === 'review' || phase === 'seats' || phase === 'decision')
+}
+
 // 현재 심급에서 공개된 주장 목록
 export function revealedClaims(s: TrialState, rec: TrialRecord): Claim[] {
   const ids = s.instances[rec.instance].revealed
@@ -137,7 +148,7 @@ export function step(s: TrialState, e: TrialEvent, records: Records): TrialState
       if (phase !== 'hearing' || rec.claims[inst.revealed.length]?.id !== e.claimId) return s
       return withInst({ revealed: [...inst.revealed, e.claimId] })
     case 'rule': {
-      if (phase === 'first_impression' || phase === 'need_record' || phase === 'final') return s
+      if (!canRule(s, records)) return s
       const owned = revealedClaims(s, rec).some((c) => c.evidence.some((ev) => ev.id === e.evidenceId))
       if (!owned || (s.rulings[e.evidenceId] ?? null) === e.ruling) return s
       const rulings = { ...s.rulings }

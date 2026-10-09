@@ -168,10 +168,10 @@ export interface Stats {
   byClaimType: { type: string; label: string; stance: string; count: number; verifiedRate: number }[]
   confidenceShift: { mean: number | null; n: number }
   seatAgreement: { agree: number; total: number }
-  byCategory: { category: string; cases: number; screeningRecall: number | null }[]
+  byCategory: { category: string; cases: number; screeningRecall: number | null; screeningSample: number }[]
   lab: { condition: string; sessions: number; verdicts: number; correct: number }[]
   redteam: { variants: number; screeningFlipped: number }
-  cost: { calls: number; promptTokens: number; outputTokens: number; seconds: number; byRole: { role: string; calls: number; seconds: number }[] }
+  cost: { calls: number; failedCalls: number; promptTokens: number; outputTokens: number; seconds: number; byRole: { role: string; calls: number; seconds: number }[] }
   agents: { selfCorrectionRate: number | null; escalations: number }
 }
 
@@ -271,7 +271,7 @@ export interface Dashboard {
   finals: number
   activeJobs: Omit<JobInfo, 'events' | 'partial'>[]
   agentsWorking: number
-  kpis: { screeningAccuracy: number | null; selfCorrectionRate: number | null; escalations: number; perjuryRate: number | null; humanOverrides: number }
+  kpis: { screeningAccuracy: number | null; selfCorrectionRate: number | null; escalations: number; perjuryRate: number | null; humanOverrides: number; samples: { screening: number; selfCorrection: number; perjury: number } }
   recent: ActivityItem[]
 }
 // 작업실 에이전트 역할

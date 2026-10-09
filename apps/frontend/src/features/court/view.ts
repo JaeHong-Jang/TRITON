@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import type { Claim, Evidence, Instance, JobInfo, TrialRecord } from '../../api/types'
 import { latestActivity } from '../../lib/activity'
 import { balanceOf, evidenceWeights } from '../../lib/scale'
-import { currentInstance, phaseOf, revealedClaims, seatCount, type Phase, type Records, type TrialState } from '../../lib/trial'
+import { canRule, currentInstance, phaseOf, revealedClaims, rulingLockReason, seatCount, type Phase, type Records, type TrialState } from '../../lib/trial'
 import { useCourt } from './store'
 
 // 근거를 한 줄로 요약
@@ -17,6 +17,11 @@ export function courtPhase(state: TrialState, records: Records, job: JobInfo | n
   const base = phaseOf(state, records)
   const unfinishedJob = !!job && job.status !== 'done'
   return unfinishedJob && base !== 'need_record' && base !== 'first_impression' ? 'hearing' : base
+}
+
+// 보고 있는 심급의 근거 판정 허용 상태
+export function courtRulingGuard(state: TrialState, records: Records, viewInstance: Instance) {
+  return { canRule: viewInstance === currentInstance(state) && canRule(state, records), rulingLockReason: rulingLockReason(state, viewInstance) }
 }
 
 // 법정 화면 파생 값 훅
@@ -53,6 +58,7 @@ export function useCourtView() {
     const focusEvidence = focus ? Object.values(records).flatMap((r) => r?.claims ?? []).flatMap((c) => c.evidence).find((e) => e.id === focus) ?? null : null
     return {
       caseData, state, records, current, phase, viewInstance, rec, shown, weights, hidden, live,
+      ...courtRulingGuard(state, records, viewInstance),
       balance: balanceOf(weights),
       seatsLit: seatCount(viewInstance),
       speakingClaim: last ?? null,

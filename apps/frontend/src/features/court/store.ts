@@ -1,12 +1,13 @@
 // 법정 화면 상태 저장소
 import { create } from 'zustand'
 import { api } from '../../api/client'
-import type { ActionLevel, AgentEvent, Case, ExecutionView, Instance, JobInfo, Leaning, LedgerEntry, Ruling, WorkflowDefinition } from '../../api/types'
+import { ApiError } from '../../api/error'
+import type { ActionLevel, AgentEvent, Case, ExecutionView, Instance, JobInfo, Leaning, LedgerEntry, NewLedgerEntry, Ruling, WorkflowDefinition } from '../../api/types'
 import { lastSeq, mergeEvents } from '../../lib/activity'
 import { isJobTerminal } from '../../lib/execution'
 import { entryFor, eventFromEntry } from '../../lib/ledger'
 import { emptyRecord, keepRevealOrder, replayLedger } from '../../lib/reveal'
-import { autoAppeal, currentInstance, phaseOf, startTrial, step, type Records, type TrialEvent, type TrialState } from '../../lib/trial'
+import { autoAppeal, currentInstance, phaseOf, rulingLockReason, startTrial, step, type Records, type TrialEvent, type TrialState } from '../../lib/trial'
 
 // 작업 상태 확인 간격 (밀리초)
 const POLL_MS = 700
@@ -68,13 +69,11 @@ function writePref(key: string, value: string) {
   }
 }
 
-// 장부 요청 중복 방지 키
-function requestIdFor(s: TrialState, e: TrialEvent, records: Records): string {
-  const entry = entryFor(s, e, records)
-  const data = JSON.stringify({ caseId: entry.caseId, instance: entry.instance, judge: entry.judge, type: entry.type, data: entry.data })
-  let hash = 0
-  for (let k = 0; k < data.length; k++) hash = (hash * 31 + data.charCodeAt(k)) >>> 0
-  return `ledger:${entry.caseId}:${entry.instance}:${entry.type}:${hash.toString(36)}`
+let requestSeq = 0
+
+// 판사 행동별 새 장부 요청 식별자
+function requestIdFor(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `ledger:${Date.now().toString(36)}:${++requestSeq}:${Math.random().toString(36).slice(2)}`
 }
 
 // 장부 id 기준 병합
@@ -90,6 +89,8 @@ export const useCourt = create<CourtStore>((set, get) => {
   let openSeq = 0
   // 첫인상 공개 전환 번호 (숨김 상태 poll 응답 폐기)
   let disclosureEpoch = 0
+  // 응답을 확인하지 못한 행동의 재전송 본문
+  let pendingLedger: { key: string; entry: NewLedgerEntry } | null = null
   // 판사 정보 만들기
   const judge = (seat: 1 | 2 | 3 = 1, name = get().judgeName) => ({ seat, name, soloMode: get().soloMode && (get().state ? currentInstance(get().state!) > 1 : false) })
   // 작성 중인 심급 표시 바꾸기
@@ -135,13 +136,16 @@ export const useCourt = create<CourtStore>((set, get) => {
     const { state, records, busy } = get()
     if (!state || busy) return
     if (step(state, e, records) === state) {
-      set({ error: '지금 단계에서는 할 수 없는 행동입니다' })
+      set({ error: (e.type === 'rule' ? rulingLockReason(state) : null) ?? '지금 단계에서는 할 수 없는 행동입니다' })
       return
     }
+    const key = JSON.stringify({ caseId: state.caseId, event: e })
+    const action = pendingLedger?.key === key ? pendingLedger : { key, entry: { ...entryFor(state, e, records), requestId: requestIdFor() } }
+    pendingLedger = action
     set({ busy: true, error: null })
     try {
-      const requestId = requestIdFor(state, e, records)
-      const saved = await api.postLedger({ ...entryFor(state, e, records), requestId })
+      const saved = await api.postLedger(action.entry)
+      if (pendingLedger === action) pendingLedger = null
       // 기록하는 동안 작업이 진행됐을 수 있어 최신 상태에 다시 적용
       const fresh = get()
       const next = step(fresh.state!, e, fresh.records)
@@ -156,6 +160,7 @@ export const useCourt = create<CourtStore>((set, get) => {
       if (auto) await dispatch(auto)
       else if (e.type === 'appeal') await maybeStart(get().state!)
     } catch (err) {
+      if (pendingLedger === action && err instanceof ApiError && err.status < 500) pendingLedger = null
       set({ busy: false, error: (err as Error).message })
     }
   }
@@ -253,6 +258,7 @@ export const useCourt = create<CourtStore>((set, get) => {
     open: async (id) => {
       runId++
       disclosureEpoch = 0
+      pendingLedger = null
       const mine = ++openSeq
       set({ caseId: id, loading: true, error: null, caseData: null, state: null, records: {}, ledger: [], focus: null, viewing: null, job: null, execution: null, events: [], jobError: null, started: false, skipping: false, busy: false, controlBusy: false })
       try {

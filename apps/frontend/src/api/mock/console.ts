@@ -190,6 +190,7 @@ function dashboard(): Dashboard {
       escalations: claims.filter((c) => c.escalated).length,
       perjuryRate: evidence.length ? evidence.filter((e) => e.status === 'fabricated').length / evidence.length : null,
       humanOverrides: ledger.filter((e) => e.type === 'evidence_ruling' && !e.labSessionId).length,
+      samples: { screening: screeningTotal, selfCorrection: claims.length, perjury: evidence.length },
     },
     recent,
   }
