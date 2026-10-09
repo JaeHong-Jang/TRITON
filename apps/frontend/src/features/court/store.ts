@@ -21,6 +21,7 @@ interface CourtStore {
   judgeName: string
   soloMode: boolean
   focus: string | null
+  reportAck: Partial<Record<Instance, boolean>>
   viewing: Instance | null
   job: JobInfo | null
   execution: ExecutionView | null
@@ -36,6 +37,7 @@ interface CourtStore {
   open: (id: string) => Promise<void>
   setFocus: (evidenceId: string | null) => void
   setViewing: (i: Instance | null) => void
+  setReportAck: (i: Instance, ack: boolean) => void
   setJudgeName: (name: string) => void
   clearError: () => void
   setSolo: (solo: boolean) => void
@@ -242,6 +244,7 @@ export const useCourt = create<CourtStore>((set, get) => {
     judgeName: readPref('ai-court-judge', '판사1'),
     soloMode: readPref('ai-court-solo', '1') === '1',
     focus: null,
+    reportAck: {},
     viewing: null,
     job: null,
     execution: null,
@@ -260,7 +263,7 @@ export const useCourt = create<CourtStore>((set, get) => {
       disclosureEpoch = 0
       pendingLedger = null
       const mine = ++openSeq
-      set({ caseId: id, loading: true, error: null, caseData: null, state: null, records: {}, ledger: [], focus: null, viewing: null, job: null, execution: null, events: [], jobError: null, started: false, skipping: false, busy: false, controlBusy: false })
+      set({ caseId: id, loading: true, error: null, caseData: null, state: null, records: {}, ledger: [], focus: null, reportAck: {}, viewing: null, job: null, execution: null, events: [], jobError: null, started: false, skipping: false, busy: false, controlBusy: false })
       try {
         const [r, workflow] = await Promise.all([api.records(id), api.workflow().catch(() => null)])
         if (mine !== openSeq) return
@@ -283,6 +286,7 @@ export const useCourt = create<CourtStore>((set, get) => {
     },
     setFocus: (focus) => set({ focus }),
     setViewing: (viewing) => set({ viewing, focus: null }),
+    setReportAck: (i, ack) => set((s) => ({ reportAck: { ...s.reportAck, [i]: ack } })),
     clearError: () => set({ error: null }),
     setJudgeName: (name) => {
       writePref('ai-court-judge', name)

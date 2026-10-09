@@ -319,3 +319,15 @@ describe('court view guards', () => {
     expect(courtPhase(state, { 1: rec }, job('partial-run', 'partial', 'cancelled'))).toBe('hearing')
   })
 })
+
+describe('재판연구관 보고서 확인', () => {
+  it('심급별로 저장하고 사건을 열면 초기화', async () => {
+    useCourt.getState().setReportAck(3, true)
+    expect(useCourt.getState().reportAck[3]).toBe(true)
+    expect(useCourt.getState().reportAck[2]).toBeUndefined()
+    apiMock.records.mockReturnValue(new Promise(() => {}))
+    apiMock.workflow.mockResolvedValue(null)
+    void useCourt.getState().open('reset-case')
+    expect(useCourt.getState().reportAck).toEqual({})
+  })
+})

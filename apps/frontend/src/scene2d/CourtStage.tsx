@@ -4,7 +4,7 @@ import type { RefObject } from 'react'
 import type { Agent, Case, Claim, EvidenceStatus, Leaning, Stance } from '../api/types'
 import type { AgentActivity } from '../lib/activity'
 import { verifiedLabel } from '../ui/format'
-import { balanceOf, fmtWeight, type WeightItem } from '../lib/scale'
+import { MAX_TILT, balanceOf, fmtWeight, type WeightItem } from '../lib/scale'
 import './traditional-court.css'
 
 // 무대에 그릴 법정 상태
@@ -30,6 +30,7 @@ export interface StageProps {
   mini?: boolean
 }
 
+const PAN_SHIFT_MAX = 64
 const COURTROOM_SRC = '/art/stone-tribunal.png'
 const CHARACTER_SRC = '/art/judgeman-3d.png'
 
@@ -136,7 +137,7 @@ function useSceneMotionPaused(ref: RefObject<HTMLDivElement | null>) {
 }
 
 // 저지맨 분리 장면
-function JudgemanFigure({ src, onMissing }: { src: string; onMissing: () => void }) {
+function JudgemanFigure({ src, panShift, onMissing }: { src: string; panShift: number; onMissing: () => void }) {
   const id = useId()
   const bodyId = `${id}-body`
   const leftId = `${id}-left-scale`
@@ -160,11 +161,15 @@ function JudgemanFigure({ src, onMissing }: { src: string; onMissing: () => void
         </clipPath>
       </defs>
       <image className="trad-court__judgemanBody" href={src} width="1254" height="1254" clipPath={`url(#${bodyId})`} onError={onMissing} />
-      <g className="trad-court__scale trad-court__scale--left">
-        <image href={src} width="1254" height="1254" clipPath={`url(#${leftId})`} aria-hidden="true" />
+      <g className="trad-court__panShift" data-pan="left" data-offset={panShift} style={{ transform: `translateY(${panShift}px)` }}>
+        <g className="trad-court__scale trad-court__scale--left">
+          <image href={src} width="1254" height="1254" clipPath={`url(#${leftId})`} aria-hidden="true" />
+        </g>
       </g>
-      <g className="trad-court__scale trad-court__scale--right">
-        <image href={src} width="1254" height="1254" clipPath={`url(#${rightId})`} aria-hidden="true" />
+      <g className="trad-court__panShift" data-pan="right" data-offset={-panShift} style={{ transform: `translateY(${-panShift}px)` }}>
+        <g className="trad-court__scale trad-court__scale--right">
+          <image href={src} width="1254" height="1254" clipPath={`url(#${rightId})`} aria-hidden="true" />
+        </g>
       </g>
       <g className="trad-court__scale trad-court__scale--lower">
         <image href={src} width="1254" height="1254" clipPath={`url(#${lowerId})`} aria-hidden="true" />
@@ -173,8 +178,13 @@ function JudgemanFigure({ src, onMissing }: { src: string; onMissing: () => void
   )
 }
 
+// 천칭 접시 세로 이동량 계산 (제곱근 곡선, 기울기 최대치에서 64 단위, 무거운 쪽이 아래)
+function panShiftOf(tilt: number): number {
+  return Math.round(Math.sign(tilt) * Math.sqrt(Math.abs(tilt) / MAX_TILT) * PAN_SHIFT_MAX)
+}
+
 // 법정 이미지 장면
-function CourtPicture() {
+function CourtPicture({ panShift }: { panShift: number }) {
   const sceneRef = useRef<HTMLDivElement>(null)
   const [courtMissing, setCourtMissing] = useState(false)
   const [characterMissing, setCharacterMissing] = useState(false)
@@ -182,7 +192,7 @@ function CourtPicture() {
   const { paused, reduceMotion } = useSceneMotionPaused(sceneRef)
 
   return (
-    <div ref={sceneRef} className="trad-court__picture" data-scene="traditional-court-picture" data-motion={motionOff || paused || reduceMotion ? 'paused' : 'running'} aria-label="석조 원형 법정 장면">
+    <div ref={sceneRef} className="trad-court__picture" data-scene="traditional-court-picture" data-motion={motionOff || paused || reduceMotion ? 'paused' : 'running'} data-still={motionOff || reduceMotion ? 'true' : 'false'} aria-label="석조 원형 법정 장면">
       {courtMissing ? (
         <div className="trad-court__fallback trad-court__fallback--court" aria-hidden="true">
           <span>석조 원형 법정 배경</span>
@@ -200,7 +210,7 @@ function CourtPicture() {
             저지맨
           </div>
         ) : (
-          <JudgemanFigure src={CHARACTER_SRC} onMissing={() => setCharacterMissing(true)} />
+          <JudgemanFigure src={CHARACTER_SRC} panShift={panShift} onMissing={() => setCharacterMissing(true)} />
         )}
       </div>
       <button className="trad-court__motionToggle" type="button" aria-pressed={reduceMotion || motionOff} disabled={reduceMotion} onClick={() => setMotionOff((current) => !current)}>
@@ -286,7 +296,7 @@ export default function CourtStage({ view, mini = false }: StageProps) {
   return (
     <section className={`trad-court ${mini ? 'trad-court--mini' : ''}`} data-scene="traditional-court" data-disclosure={view.hidden ? 'hidden' : 'open'} aria-label="AI 법정 장면">
       <div className="trad-court__frame">
-        <CourtPicture />
+        <CourtPicture panShift={view.hidden ? 0 : panShiftOf(balanceOf(view.weights).tilt)} />
       </div>
       {!view.hidden ? <WeightBar weights={view.weights} /> : null}
       {!view.hidden && !mini ? <EvidenceStrip weights={view.weights} focusId={view.focusId} settled={!!view.settled} onPick={view.onPick} /> : null}

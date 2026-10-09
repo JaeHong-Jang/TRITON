@@ -167,7 +167,7 @@ function LabJudge({ session, caseId, title, onDone }: { session: LabSession; cas
   const bal = balanceOf(weights)
   const screening = data.rec?.screening ?? null
   const showAi = cond === 'B' || cond === 'C'
-  const why = !leaning ? '낚시성 여부를 고르면 기록할 수 있어요' : reason.trim().length < 10 ? '판결 사유를 10자 이상 쓰면 기록할 수 있어요' : busy ? '기록하는 중입니다' : null
+  const why = !leaning ? '낚시성 여부를 고르면 기록할 수 있어요' : busy ? '기록하는 중입니다' : null
   // 판결을 장부에 기록
   const submit = async () => {
     if (!leaning) return

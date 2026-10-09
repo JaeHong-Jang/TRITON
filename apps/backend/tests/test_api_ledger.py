@@ -46,12 +46,14 @@ BAD = [
     ("reveal", {}, {}),
     ("evidence_ruling", {"evidenceId": "e", "ruling": "x", "checkerWeight": 1}, {}),
     ("evidence_ruling", {"evidenceId": "e", "ruling": "admitted"}, {}),
-    ("seat_verdict", {"verdict": "clickbait", "confidence": 50, "reason": "짧음"}, {}),
+    ("seat_verdict", {"verdict": "clickbait", "confidence": 50, "reason": 3}, {}),
     ("seat_verdict", {"verdict": "clickbait", "confidence": 50}, {}),
-    ("appeal", {"reason": " "}, {}),
+    ("appeal", {}, {}),
+    ("appeal", {"reason": None}, {}),
     ("appeal", {"reason": "3심 항소"}, {"instance": 3}),
     ("final", {"verdict": "clickbait", "action": "L9", "reason": "r", "votes": []}, {}),
     ("final", {"verdict": "clickbait", "action": "L2", "reason": "", "votes": []}, {}),
+    ("final", {"verdict": "clickbait", "action": "L1", "reason": None, "votes": []}, {}),
     ("final", {"verdict": "clickbait", "action": "L1", "reason": "r", "votes": [{"seat": 9, "verdict": "clickbait"}]}, {}),
     ("reveal", {"claimId": "a"}, {"instance": 4}),
     ("reveal", {"claimId": "a"}, {"seat": 0}),
@@ -74,13 +76,45 @@ def test_ledger_shape_and_unknown_case(env):
     assert env.post("/api/ledger", json=ledger_body("zzz", "reveal", {"claimId": "a"})).status_code == 404
 
 
-# 올바른 사유 길이는 통과
-def test_seat_verdict_ok(env):
-    d = {"verdict": "not_clickbait", "confidence": 55, "reason": REASON}
+@pytest.mark.parametrize("reason", ["", " ", "짧음", "사유" * 1000], ids=["empty", "whitespace", "short", "long"])
+# 빈 사유와 짧거나 긴 판사석 사유 허용
+def test_seat_verdict_ok(env, reason):
+    d = {"verdict": "not_clickbait", "confidence": 55, "reason": reason}
     first_impression(env, "c1")
     reveal_all(env, "c1")
     rule_failed(env, "c1")
-    assert env.post("/api/ledger", json=ledger_body("c1", "seat_verdict", d)).status_code == 200
+    response = env.post("/api/ledger", json=ledger_body("c1", "seat_verdict", d))
+    assert response.status_code == 200 and response.json()["data"]["reason"] == reason
+
+
+@pytest.mark.parametrize("reason", ["", " ", "짧음", "사유" * 1000], ids=["empty", "whitespace", "short", "long"])
+# 사유 길이와 무관한 항소 허용
+def test_appeal_optional_reason(env, reason):
+    first_impression(env, "c1")
+    reveal_all(env, "c1")
+    rule_failed(env, "c1")
+    post_ledger(env, "c1", "seat_verdict", {"verdict": "clickbait", "confidence": 70, "reason": ""})
+    response = env.post("/api/ledger", json=ledger_body("c1", "appeal", {"reason": reason}))
+    assert response.status_code == 200 and response.json()["data"]["reason"] == reason
+    assert env.get("/api/records/c1").json()["ledger"][-1]["type"] == "appeal"
+
+
+@pytest.mark.parametrize("action", ["L0", "L1", "L2", "L3"])
+@pytest.mark.parametrize("reason", ["", " ", "짧음", "사유" * 1000], ids=["empty", "whitespace", "short", "long"])
+# 최종 사유 길이 제한 제거와 무거운 조치의 필수 사유 유지
+def test_final_optional_reason_by_action(env, action, reason):
+    first_impression(env, "c1")
+    reveal_all(env, "c1")
+    rule_failed(env, "c1")
+    post_ledger(env, "c1", "seat_verdict", {"verdict": "clickbait", "confidence": 70, "reason": ""})
+    before = env.get("/api/ledger").json()
+    data = {"verdict": "clickbait", "action": action, "reason": reason, "votes": [{"seat": 1, "verdict": "clickbait"}]}
+    response = env.post("/api/ledger", json=ledger_body("c1", "final", data))
+    if action in ("L2", "L3") and not reason.strip():
+        assert response.status_code == 422 and response.json()["detail"] == "L2·L3 조치는 사유가 필수입니다"
+        assert env.get("/api/ledger").json() == before
+    else:
+        assert response.status_code == 200 and response.json()["data"]["reason"] == reason
 
 
 # 절차 우회는 실패

@@ -73,4 +73,25 @@ describe('석조 법정의 공개 경계', () => {
     view.settled = true
     expect(renderToStaticMarkup(<CourtStage view={view} speakingClaim={null} activity={[]} currentSeat={null} />)).toContain('개별 판정 없음')
   })
+
+  it('천칭 접시는 공개 전 수평이고 무거운 쪽이 아래로 내려간다', () => {
+    const offsets = (view: SceneView) => {
+      const html = renderToStaticMarkup(<CourtStage view={view} speakingClaim={null} activity={[]} currentSeat={null} />)
+      return ['left', 'right'].map((side) => Number(html.match(new RegExp(`data-pan="${side}" data-offset="(-?\\d+)"`))?.[1]))
+    }
+    expect(offsets(scene(true))).toEqual([0, 0])
+    const [pl, pr] = offsets(scene(false))
+    expect(pl).toBeGreaterThan(0)
+    expect(pr).toBe(-pl)
+    const con = scene(false)
+    con.weights = [{ ...weight, stance: 'con' }]
+    const [cl, cr] = offsets(con)
+    expect(cl).toBeLessThan(0)
+    expect(cr).toBeGreaterThan(0)
+  })
+
+  it('공개 근거 목록은 기본 접힘이다', () => {
+    const html = renderToStaticMarkup(<CourtStage view={scene(false)} speakingClaim={null} activity={[]} currentSeat={null} />)
+    expect(html).toMatch(/<details class="trad-court__evidenceStrip"(?![^>]*\sopen)/)
+  })
 })

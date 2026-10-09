@@ -658,6 +658,10 @@ export async function handle(method: string, rawPath: string, body: unknown): Pr
   if (path === '/ledger' && method === 'POST') {
     const en = body as NewLedgerEntry
     getCase(en.caseId)
+    if (en.type === 'seat_verdict' || en.type === 'appeal' || en.type === 'final') {
+      if (typeof en.data.reason !== 'string') throw new ApiError(422, 'reason은 문자열이어야 합니다')
+      if (en.type === 'final' && (en.data.action === 'L2' || en.data.action === 'L3') && !en.data.reason.trim()) throw new ApiError(422, 'L2·L3 조치는 사유가 필수입니다')
+    }
     const saved: LedgerEntry = { ...en, id: `L${++seq}`, at: new Date().toISOString() }
     ledger.push(saved)
     save()

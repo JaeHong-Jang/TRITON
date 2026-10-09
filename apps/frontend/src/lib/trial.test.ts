@@ -1,8 +1,8 @@
 // 재판 상태기계 검증
 import { describe, expect, it } from 'vitest'
-import type { Claim, Dashboard, Instance, Judge, Leaning, Stats, TrialRecord } from '../api/types'
+import type { ActionLevel, Claim, Dashboard, Instance, Judge, Leaning, NewLedgerEntry, Stats, TrialRecord } from '../api/types'
 import { correctionCounts, DEFS, buildTrial } from '../api/mock/fixtures'
-import { handle } from '../api/mock/handlers'
+import { handle, mockState } from '../api/mock/handlers'
 import { entryFor } from './ledger'
 import { autoAppeal, canRule, claimsNeedingManualReview, currentInstance, majorityOf, phaseOf, replay, rulingLockReason, startTrial, step, type Records, type TrialEvent, type TrialState } from './trial'
 
@@ -59,9 +59,37 @@ describe('1심', () => {
     expect(phaseOf(run(records, [first, ...hear(1)]), records)).toBe('seats')
   })
 
-  it('사유가 짧으면 판결이 거부된다', () => {
-    const bad: TrialEvent = { type: 'seat_verdict', instance: 1, judge: judge(), verdict: 'clickbait', confidence: 70, reason: '짧음' }
-    expect(phaseOf(run(records, [first, ...hear(1), bad]), records)).toBe('seats')
+  it.each(['', ' ', '짧음', '사유'.repeat(1000)])('사유 길이에 제한 없이 판사석 판결을 기록한다', (reason) => {
+    const verdict: TrialEvent = { type: 'seat_verdict', instance: 1, judge: judge(), verdict: 'clickbait', confidence: 70, reason }
+    const s = run(records, [first, ...hear(1), verdict])
+    expect(phaseOf(s, records)).toBe('decision')
+    expect(s.instances[1].seats[0].reason).toBe(reason.trim())
+  })
+
+  it.each(['', ' ', '짧음', '사유'.repeat(1000)])('사유 길이에 제한 없이 항소하고 다음 심급으로 진행한다', (reason) => {
+    const s = run(records, [first, ...hear(1), seat(1, 1, 'clickbait'), { type: 'appeal', instance: 1, judge: judge(), reason }])
+    expect(s.instances[1].appeal).toBe(reason.trim())
+    expect(currentInstance(s)).toBe(2)
+    expect(phaseOf(s, records)).toBe('need_record')
+  })
+
+  it.each<ActionLevel>(['L0', 'L1', 'L2', 'L3'])('최종 %s 조치에만 필요한 사유를 검사한다', (action) => {
+    const s = run(records, [first, ...hear(1), seat(1, 1, 'clickbait')])
+    for (const reason of ['', ' ', '짧음', '사유'.repeat(1000)]) {
+      const next = step(s, { type: 'final', instance: 1, judge: judge(), verdict: 'clickbait', action, reason }, records)
+      if ((action === 'L2' || action === 'L3') && !reason.trim()) expect(next).toBe(s)
+      else expect(next.final).toMatchObject({ action, reason: reason.trim() })
+    }
+  })
+
+  it('판결과 항소 및 최종 사유는 문자열이어야 한다', () => {
+    const heard = run(records, [first, ...hear(1)])
+    const decided = step(heard, seat(1, 1, 'clickbait'), records)
+    for (const reason of [undefined, null, 3]) {
+      expect(step(heard, { ...seat(1, 1, 'clickbait'), reason } as unknown as TrialEvent, records)).toBe(heard)
+      expect(step(decided, { type: 'appeal', instance: 1, judge: judge(), reason } as unknown as TrialEvent, records)).toBe(decided)
+      expect(step(decided, { type: 'final', instance: 1, judge: judge(), verdict: 'clickbait', action: 'L1', reason } as unknown as TrialEvent, records)).toBe(decided)
+    }
   })
 
   it('판결 후 확정하면 최종 상태가 된다', () => {
@@ -243,5 +271,41 @@ describe('모의 통계 계약', () => {
     const final = await handle('GET', '/dashboard', undefined) as Dashboard
     expect(final.kpis.samples).toEqual({ ...open.kpis.samples, screening: 1 })
     expect(final.kpis.screeningAccuracy).toBe(1)
+  })
+})
+
+describe('모의 장부 사유 계약', () => {
+  const base = { caseId: 'mock-003', instance: 1 as const, judge: judge(), labSessionId: null, context: { balance: null, aiRecommendationShown: false, scaleVisible: false } }
+
+  it.each(['seat_verdict', 'appeal', 'final'] as const)('%s 사유는 문자열이며 길이 제한이 없다', async (type) => {
+    const before = mockState().ledger.length
+    const data = { verdict: 'clickbait', confidence: 70, action: 'L1', votes: [{ seat: 1, verdict: 'clickbait' }] }
+    try {
+      for (const reason of ['', ' ', '짧음', '사유'.repeat(1000)]) {
+        const saved = await handle('POST', '/ledger', { ...base, type, data: { ...data, reason } }) as NewLedgerEntry
+        expect(saved.data.reason).toBe(reason)
+      }
+      for (const reason of [undefined, null, 3]) {
+        await expect(handle('POST', '/ledger', { ...base, type, data: { ...data, reason } })).rejects.toMatchObject({ status: 422 })
+      }
+      expect(mockState().ledger.length).toBe(before + 4)
+    } finally {
+      mockState().ledger.splice(before)
+    }
+  })
+
+  it.each(['L2', 'L3'])('최종 %s 조치는 빈 사유를 거부하고 짧은 사유를 허용한다', async (action) => {
+    const before = mockState().ledger.length
+    const entry = { ...base, type: 'final', data: { verdict: 'clickbait', action, votes: [{ seat: 1, verdict: 'clickbait' }] } }
+    try {
+      for (const reason of ['', ' ']) {
+        await expect(handle('POST', '/ledger', { ...entry, data: { ...entry.data, reason } })).rejects.toMatchObject({ status: 422, message: 'L2·L3 조치는 사유가 필수입니다' })
+      }
+      expect(mockState().ledger.length).toBe(before)
+      const saved = await handle('POST', '/ledger', { ...entry, data: { ...entry.data, reason: '승인' } }) as NewLedgerEntry
+      expect(saved.data.reason).toBe('승인')
+    } finally {
+      mockState().ledger.splice(before)
+    }
   })
 })

@@ -65,13 +65,13 @@ def validate(entry) -> None:
     elif t == "seat_verdict":
         _leaning(d.get("verdict"))
         _confidence(d)
-        if not isinstance(d.get("reason"), str) or len(d["reason"].strip()) < 10:
-            raise ValueError("판결 사유는 10자 이상이어야 합니다")
+        if not isinstance(d.get("reason"), str):
+            raise ValueError("reason은 문자열이어야 합니다")
     elif t == "appeal":
         if entry.instance >= 3:
             raise ValueError("3심은 항소할 수 없습니다")
-        if not isinstance(d.get("reason"), str) or not d["reason"].strip():
-            raise ValueError("항소 사유가 필요합니다")
+        if not isinstance(d.get("reason"), str):
+            raise ValueError("reason은 문자열이어야 합니다")
     else:
         _leaning(d.get("verdict"))
         if d.get("action") not in ACTIONS:

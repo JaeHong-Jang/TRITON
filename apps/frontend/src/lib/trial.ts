@@ -1,9 +1,6 @@
 // 1심·2심·3심 재판 진행 상태기계
 import type { ActionLevel, AgentEvent, Claim, Instance, Judge, Leaning, Ruling, TrialRecord } from '../api/types'
 
-// 판결·사유 최소 글자 수
-export const MIN_REASON = 10
-
 // 심급 진행 단계
 export type Phase = 'first_impression' | 'hearing' | 'review' | 'seats' | 'decision' | 'need_record' | 'final'
 // 심급별 재판 기록
@@ -157,14 +154,15 @@ export function step(s: TrialState, e: TrialEvent, records: Records): TrialState
       return { ...s, rulings }
     }
     case 'seat_verdict':
-      if (phase !== 'seats' || e.judge.seat !== inst.seats.length + 1 || !validConfidence(e.confidence) || e.reason.trim().length < MIN_REASON) return s
+      if (phase !== 'seats' || e.judge.seat !== inst.seats.length + 1 || !validConfidence(e.confidence) || typeof e.reason !== 'string') return s
       return withInst({ seats: [...inst.seats, { seat: e.judge.seat, judge: e.judge.name, soloMode: e.judge.soloMode, verdict: e.verdict, confidence: e.confidence, reason: e.reason.trim() }] })
     case 'appeal':
-      if (phase !== 'decision' || i === 3 || e.reason.trim().length < MIN_REASON) return s
+      if (phase !== 'decision' || i === 3 || typeof e.reason !== 'string') return s
       return withInst({ appeal: e.reason.trim() })
     case 'final': {
       const majority = majorityOf(inst.seats)
-      if (phase !== 'decision' || majority === null || e.verdict !== majority || e.reason.trim().length < MIN_REASON) return s
+      if (phase !== 'decision' || majority === null || e.verdict !== majority || typeof e.reason !== 'string') return s
+      if ((e.action === 'L2' || e.action === 'L3') && !e.reason.trim()) return s
       return { ...s, final: { verdict: majority, action: e.action, reason: e.reason.trim(), votes: inst.seats.map((v) => ({ seat: v.seat, verdict: v.verdict })) } }
     }
   }

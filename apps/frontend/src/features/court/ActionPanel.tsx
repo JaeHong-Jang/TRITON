@@ -1,7 +1,7 @@
 // 판사 행동 패널
 import { useState } from 'react'
 import type { ActionLevel, Instance, Leaning } from '../../api/types'
-import { MIN_REASON, agentsNeedingManualReview, claimsNeedingManualReview, majorityOf, seatCount } from '../../lib/trial'
+import { agentsNeedingManualReview, claimsNeedingManualReview, majorityOf, seatCount } from '../../lib/trial'
 import { Confidence, GuardedButton, LeaningPicker, ReasonBox, Term } from '../../ui/Forms'
 import { Badge } from '../../ui/Badge'
 import { actionLabel, leaningLabel } from '../../lib/names'
@@ -59,16 +59,15 @@ function SeatForm({ instance, seat }: { instance: Instance; seat: 1 | 2 | 3 }) {
   const [leaning, setLeaning] = useState<Leaning | null>(null)
   const [conf, setConf] = useState(60)
   const [reason, setReason] = useState('')
-  const [readReport, setReadReport] = useState(false)
+  const readReport = useCourt((s) => !!s.reportAck[instance])
   const effectiveName = solo ? judgeName : name
-  const needReport = instance === 3 && seat === 1
+  const needReport = instance === 3 && !!v.rec?.officer
   const why =
     !effectiveName.trim() ? '판사 이름을 적으면 기록할 수 있어요'
-      : needReport && !readReport ? '재판연구관 보고서를 확인했다고 체크하면 기록할 수 있어요'
+      : needReport && !readReport ? '재판연구관 보고서를 먼저 확인해 주세요'
         : multi && !solo && seats.some((x) => x.judge === effectiveName.trim()) ? '다른 판사석과 같은 이름이에요. 합의부는 서로 다른 판사가 판결해야 해요'
           : !leaning ? '낚시성 여부를 고르면 기록할 수 있어요'
-            : reason.trim().length < MIN_REASON ? `판결 사유를 ${MIN_REASON}자 이상 쓰면 기록할 수 있어요`
-              : busy ? '기록하는 중입니다' : null
+            : busy ? '기록하는 중입니다' : null
   const screening = instance === 1 && v.live && v.phase === 'seats' ? v.rec?.screening : null
   return (
     <div className="space-y-3">
@@ -83,10 +82,11 @@ function SeatForm({ instance, seat }: { instance: Instance; seat: 1 | 2 | 3 }) {
         </div>
       ) : null}
       {needReport ? (
-        <label className="flex items-center gap-2 text-sm font-semibold">
-          <input type="checkbox" checked={readReport} onChange={(e) => setReadReport(e.target.checked)} />
-          재판연구관 보고서를 확인했습니다
-        </label>
+        readReport ? <p className="text-sm font-bold text-emerald-800">재판연구관 보고서 확인됨 ✓</p> : (
+          <p className="text-sm font-bold text-amber-900">
+            재판연구관 보고서를 먼저 확인해 주세요 · <button type="button" className="underline hover:text-stone-900" onClick={() => document.getElementById('officer-report')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>보고서로 이동</button>
+          </p>
+        )
       ) : null}
       <LeaningPicker value={leaning} onChange={setLeaning} />
       <Confidence value={conf} onChange={setConf} />
@@ -117,9 +117,9 @@ function DecisionForm({ instance }: { instance: Instance }) {
   const majority = majorityOf(seats)
   const [action, setAction] = useState<ActionLevel | null>(null)
   const [reason, setReason] = useState('')
-  const short = reason.trim().length < MIN_REASON
-  const confirmWhy = busy ? '기록하는 중입니다' : majority === null ? '판사석 의견이 갈려 확정할 수 없어요' : !action ? '조치 단계를 고르면 확정할 수 있어요' : short ? `사유를 ${MIN_REASON}자 이상 쓰면 확정할 수 있어요` : null
-  const appealWhy = busy ? '기록하는 중입니다' : short ? `사유를 ${MIN_REASON}자 이상 쓰면 보낼 수 있어요` : null
+  const heavy = action === 'L2' || action === 'L3'
+  const confirmWhy = busy ? '기록하는 중입니다' : majority === null ? '판사석 의견이 갈려 확정할 수 없어요' : !action ? '조치 단계를 고르면 확정할 수 있어요' : heavy && !reason.trim() ? '순위 하향·제재는 승인 사유를 적어 주세요' : null
+  const appealWhy = busy ? '기록하는 중입니다' : null
   const pro = seats.filter((s) => s.verdict === 'clickbait').length
   return (
     <div className="space-y-3">

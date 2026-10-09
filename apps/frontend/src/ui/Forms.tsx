@@ -1,14 +1,13 @@
 // 판결 입력용 공통 폼 조각
 import { useState, type ReactNode } from 'react'
 import type { Leaning } from '../api/types'
-import { MIN_REASON } from '../lib/trial'
 import { INPUT } from './styles'
 
 // 낚시성 여부 선택 버튼
 export function LeaningPicker({ value, onChange }: { value: Leaning | null; onChange: (l: Leaning) => void }) {
   const opts: { v: Leaning; label: string; on: string }[] = [
-    { v: 'clickbait', label: '낚시성이다', on: 'border-pro bg-pro text-white' },
-    { v: 'not_clickbait', label: '낚시성 아니다', on: 'border-con bg-con text-white' },
+    { v: 'clickbait', label: '낚시성 (유죄)', on: 'border-pro bg-pro text-white' },
+    { v: 'not_clickbait', label: '낚시성 아님 (무죄)', on: 'border-con bg-con text-white' },
   ]
   return (
     <div role="radiogroup" aria-label="낚시성 여부" className="grid grid-cols-2 gap-2">
@@ -33,11 +32,9 @@ export function Confidence({ value, onChange }: { value: number; onChange: (n: n
 
 // 사유 입력칸
 export function ReasonBox({ value, onChange, label }: { value: string; onChange: (s: string) => void; label: string }) {
-  const n = value.trim().length
-  const ok = n >= MIN_REASON
   return (
     <label className="block text-sm">
-      {label} <span className={`text-xs font-semibold ${ok ? 'text-emerald-800' : 'text-amber-900'}`} aria-live="polite">{ok ? `✓ ${n}자` : `${n}/${MIN_REASON}자 (${MIN_REASON - n}자 더)`}</span>
+      {label}
       <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={3} className={`${INPUT} mt-1`} />
     </label>
   )
